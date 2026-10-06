@@ -75,13 +75,6 @@
   };
   const badge = (status) => el('span', { class: `badge ${status}` }, LABEL[status]);
 
-  // A claim is not shown if any item is not shown, shown only when every item is, and blocked otherwise.
-  const claimStatus = (c) => {
-    if (c.items.some((i) => i.status === 'not-shown')) return 'not-shown';
-    if (c.items.length > 0 && c.items.every((i) => i.status === 'shown')) return 'shown';
-    return 'blocked';
-  };
-
   const highlighted = (text, marks = []) => {
     const pre = el('pre');
     const terms = marks.filter(Boolean);
@@ -103,21 +96,21 @@
       el('details', {}, el('summary', {}, 'How it was produced'), el('pre', {}, i.how)));
   };
 
-  const claim = (c) => {
-    const status = claimStatus(c);
-    const source = /^https?:/.test(c.source) ? el('a', { href: c.source }, c.source) : el('code', {}, c.source);
-    return el('section', { class: 'card', id: c.id },
-      el('div', { class: 'head' }, el('span', { class: 'id' }, c.id), badge(status), c.origin === 'extracted' ? el('span', { class: 'tag' }, 'extracted') : null),
+  const ORIGIN = { quoted: 'Quoted from the source', extracted: "Extracted from the source's wording", probe: 'Found by the verifier, next to a claim' };
+  const source = () => (/^https?:/.test(ev.source) ? el('a', { href: ev.source }, ev.source) : el('code', {}, ev.source));
+
+  // The page builder sets each claim's status from its items.
+  const claim = (c) =>
+    el('section', { class: 'card', id: c.id },
+      el('div', { class: 'head' }, el('span', { class: 'id' }, c.id), badge(c.status), c.origin !== 'quoted' ? el('span', { class: 'tag' }, c.origin) : null),
       el('p', { class: 'claim' }, c.text),
-      el('div', { class: 'muted' }, `${c.origin === 'quoted' ? 'Quoted from' : 'Extracted from'} `, source),
-      c.blocked ? el('div', { class: 'reason blocked' }, c.blocked) : null,
+      el('div', { class: 'muted' }, ORIGIN[c.origin]),
       c.items.map(item));
-  };
 
   const render = () => {
     document.title = `Verification: ${ev.title}`;
     const counts = { shown: 0, 'not-shown': 0, blocked: 0 };
-    for (const c of ev.claims) counts[claimStatus(c)]++;
+    for (const c of ev.claims) counts[c.status]++;
     const extracted = ev.claims.filter((c) => c.origin === 'extracted');
     const page = document.getElementById('page');
     page.replaceChildren(...[
@@ -125,7 +118,8 @@
       el('div', { class: 'meta' },
         el('span', {}, 'Target ', el('code', {}, ev.target.ref)),
         el('span', {}, 'Commit ', el('code', {}, ev.target.commit.slice(0, 12))),
-        el('span', {}, `Ran ${ev.ranAt}`)),
+        el('span', {}, `Ran ${ev.ranAt}`),
+        el('span', {}, 'Claims from ', source())),
       el('div', { class: 'tiles' }, Object.entries(counts).map(([s, n]) => el('div', { class: 'tile' }, el('b', {}, String(n)), badge(s)))),
       extracted.length
         ? el('div', { class: 'note' }, el('b', {}, 'Claims read from prose: check these first. '),
