@@ -8,6 +8,7 @@ Agent skills for Claude Code, grouped into plugins by area and published as a pl
 
 - `feature-spec` — a one-page issue stating intent and numbered, verifiable claims, leaving the solution to the builder.
 - `verify` — independent runtime verification: a fresh, isolated session runs one commit, drives it at its boundaries, and proves each claim on one evidence page. A project describes how to run it in `VERIFY.md` files. Experimental.
+- `prototype` — a clickable, self-contained HTML prototype of a change to a web app's page, built on the running app's look. A project describes how to capture and reproduce its look in `PROTOTYPE.md` files.
 
 Skills are invoked as `/<plugin>:<skill>`, e.g. `/sdlc:verify`, or picked up by Claude from their descriptions.
 
