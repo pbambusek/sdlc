@@ -1,6 +1,6 @@
 # Worked feature specs
 
-Two shapes the same template takes: a UI feature written after a prototype review, and a backend feature with no screen. Both are illustrative; treat the product details as invented. Each opens with the builder note from [TEMPLATE.md](TEMPLATE.md) in a real spec; it is left out here so the examples show only what varies.
+Two shapes the same template takes: a UI feature written after a prototype review, and a backend feature with no screen. Both are illustrative; treat the product details as invented. Each opens with the builder note from [template.md](template.md) in a real spec; it is left out here so the examples show only what varies.
 
 ## UI: any employee can propose an idea to the backlog
 
