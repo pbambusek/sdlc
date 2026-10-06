@@ -1,0 +1,82 @@
+{
+  "title": "PROJ-42: any employee can propose an idea to the backlog",
+  "target": { "ref": "proj-42-propose-an-idea", "commit": "3f9c2a7e1b4d8f06a5c3e9b2d7f1a4c8e6b0d5f3" },
+  "ranAt": "2026-10-05T08:08Z",
+  "environment": [
+    "web as a second dev user with the backlogEdit flag forced off, to act as an employee outside the product team.",
+    "The duplicate check's service call was forced to answer 500 for C12."
+  ],
+  "claims": [
+    {
+      "id": "C5",
+      "text": "A match that is in progress shows \"In progress\" and has no vote option.",
+      "origin": "quoted",
+      "source": "https://tracker.example.com/browse/PROJ-42",
+      "items": [
+        {
+          "type": "screenshot",
+          "shows": "The second match carries an \"In progress\" label and no \"Vote for this instead\" button; the backlog match below it has one.",
+          "how": "As the non-team user on /backlog: Propose an idea, title \"Dark mode for the dashboard\", submit, wait for \"Is it one of these?\".",
+          "payload": "shots/c5-matches-mixed-stages.png",
+          "status": "shown"
+        }
+      ]
+    },
+    {
+      "id": "C12",
+      "text": "If the duplicate check fails, an error is recorded in telemetry with the failure reason.",
+      "origin": "quoted",
+      "source": "https://tracker.example.com/browse/PROJ-42",
+      "items": [
+        {
+          "type": "trace",
+          "shows": "The backlog.duplicate_check span ends with error status and carries the failure reason.",
+          "how": "Forced the duplicate check to answer 500, proposed \"Idea while the check is forced to fail\", then read the web app's exported span.",
+          "payload": "{\n  \"name\": \"backlog.duplicate_check\",\n  \"status\": { \"code\": 2, \"message\": \"duplicate check answered 500\" },\n  \"attributes\": {\n    \"app.source.type\": \"web\",\n    \"app.backlog.duplicate_check.outcome\": \"failed\",\n    \"app.backlog.duplicate_check.failure\": \"duplicate check answered 500\"\n  }\n}",
+          "highlight": ["\"code\": 2", "\"app.backlog.duplicate_check.failure\": \"duplicate check answered 500\""],
+          "status": "shown"
+        }
+      ]
+    },
+    {
+      "id": "C15",
+      "text": "When an idea is posted, #product-ideas receives a chat message with its title, proposer and a link to it.",
+      "origin": "quoted",
+      "source": "https://tracker.example.com/browse/PROJ-42",
+      "items": [
+        {
+          "type": "http",
+          "shows": "Posting an idea hands the notification service one notice with the title, the proposer's name and a link to the item.",
+          "how": "Posted \"Export the dashboard as PDF\" and read the web-to-notifier request.",
+          "payload": "POST /backlog/proposal-notification\n{\"title\":\"Export the dashboard as PDF\",\"proposerName\":\"Local dev user\",\"link\":\"http://localhost:3000/backlog?item=0b732def-2396-4de6-b0ec-a45a491395e6\"}\n\n<- 200 {\"outcome\":\"not-configured\"}",
+          "highlight": ["\"title\"", "\"proposerName\"", "\"link\"", "not-configured"],
+          "status": "shown"
+        },
+        {
+          "type": "event",
+          "shows": "The message arrives in #product-ideas.",
+          "how": "Not run.",
+          "payload": "No chat post was made.",
+          "status": "blocked",
+          "reason": "No chat bot token locally, so the notifier answers not-configured. To close it: post one idea where PROPOSALS_CHANNEL_ID is set and the bot is in the channel."
+        }
+      ]
+    },
+    {
+      "id": "C24",
+      "text": "Opening `/ideas` lands on `/backlog`.",
+      "origin": "quoted",
+      "source": "https://tracker.example.com/browse/PROJ-42",
+      "items": [
+        {
+          "type": "http",
+          "shows": "/ideas answers a redirect to /backlog.",
+          "how": "GET http://localhost:3000/ideas without following redirects.",
+          "payload": "307\nlocation: /backlog",
+          "highlight": ["307", "/backlog"],
+          "status": "shown"
+        }
+      ]
+    }
+  ]
+}

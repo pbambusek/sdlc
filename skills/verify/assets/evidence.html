@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verification</title>
+<!--
+  LOCKED TEMPLATE of the verify skill. A run never edits this file or its copy:
+  it writes evidence.json, and scripts/build-page.mts fills the block below and inlines every screenshot.
+-->
+<style>
+  :root {
+    --bg: #fafaf9; --card: #ffffff; --fg: #1c1917; --muted: #57534e; --line: #e7e5e4; --code: #f5f5f4;
+    --shown: #15803d; --shown-bg: #dcfce7; --not-shown: #b91c1c; --not-shown-bg: #fee2e2;
+    --blocked: #a16207; --blocked-bg: #fef3c7; --mark: #fde68a; --accent: #1d4ed8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #0c0a09; --card: #1c1917; --fg: #f5f5f4; --muted: #a8a29e; --line: #292524; --code: #292524;
+      --shown: #4ade80; --shown-bg: #14532d; --not-shown: #f87171; --not-shown-bg: #7f1d1d;
+      --blocked: #facc15; --blocked-bg: #713f12; --mark: #854d0e; --accent: #93c5fd;
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #0c0a09; --card: #1c1917; --fg: #f5f5f4; --muted: #a8a29e; --line: #292524; --code: #292524;
+    --shown: #4ade80; --shown-bg: #14532d; --not-shown: #f87171; --not-shown-bg: #7f1d1d;
+    --blocked: #facc15; --blocked-bg: #713f12; --mark: #854d0e; --accent: #93c5fd;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; }
+  a { color: var(--accent); }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .muted { color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0; color: var(--muted); font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 16px 0; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .tile b { display: block; font-size: 24px; }
+  .note { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--blocked); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 0 0 16px; overflow-wrap: anywhere; }
+  .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .id { font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+  .claim { margin: 8px 0 4px; font-size: 16px; }
+  .badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .shown { color: var(--shown); background: var(--shown-bg); }
+  .not-shown { color: var(--not-shown); background: var(--not-shown-bg); }
+  .blocked { color: var(--blocked); background: var(--blocked-bg); }
+  .tag { font-size: 12px; border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--muted); }
+  .item { border-top: 1px solid var(--line); padding: 12px 0 0; margin-top: 12px; }
+  .shows { font-weight: 600; }
+  .reason { margin: 6px 0; padding: 8px 12px; border-radius: 6px; }
+  .shot { display: block; margin: 8px 0; }
+  .shot img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+  pre { background: var(--code); border-radius: 6px; padding: 10px 12px; margin: 8px 0; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  mark { background: var(--mark); color: inherit; border-radius: 2px; }
+  details { margin-top: 6px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  ul { margin: 4px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main id="page"><p>This page renders from its embedded evidence block and needs JavaScript.</p></main>
+<script type="application/json" id="evidence">null</script>
+<script>
+  const ev = JSON.parse(document.getElementById('evidence').textContent);
+  const LABEL = { shown: 'Shown', 'not-shown': 'Not shown', blocked: 'Blocked' };
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    for (const kid of kids.flat()) if (kid != null) n.append(kid);
+    return n;
+  };
+  const badge = (status) => el('span', { class: `badge ${status}` }, LABEL[status]);
+
+  // A claim is not shown if any item is not shown, shown only when every item is, and blocked otherwise.
+  const claimStatus = (c) => {
+    if (c.items.some((i) => i.status === 'not-shown')) return 'not-shown';
+    if (c.items.length > 0 && c.items.every((i) => i.status === 'shown')) return 'shown';
+    return 'blocked';
+  };
+
+  const highlighted = (text, marks = []) => {
+    const pre = el('pre');
+    const terms = marks.filter(Boolean);
+    if (terms.length === 0) return (pre.textContent = text), pre;
+    const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    for (const part of text.split(new RegExp(`(${escaped.join('|')})`, 'g'))) pre.append(terms.includes(part) ? el('mark', {}, part) : part);
+    return pre;
+  };
+
+  const item = (i) => {
+    const body =
+      i.type === 'screenshot'
+        ? el('a', { class: 'shot', href: i.src, target: '_blank' }, el('img', { src: i.src, alt: i.shows }))
+        : highlighted(i.payload, i.highlight);
+    return el('div', { class: 'item' },
+      el('div', { class: 'head' }, el('span', { class: 'tag' }, i.type), badge(i.status), el('span', { class: 'shows' }, i.shows)),
+      i.reason ? el('div', { class: `reason ${i.status}` }, i.reason) : null,
+      body,
+      el('details', {}, el('summary', {}, 'How it was produced'), el('pre', {}, i.how)));
+  };
+
+  const claim = (c) => {
+    const status = claimStatus(c);
+    const source = /^https?:/.test(c.source) ? el('a', { href: c.source }, c.source) : el('code', {}, c.source);
+    return el('section', { class: 'card', id: c.id },
+      el('div', { class: 'head' }, el('span', { class: 'id' }, c.id), badge(status), c.origin === 'extracted' ? el('span', { class: 'tag' }, 'extracted') : null),
+      el('p', { class: 'claim' }, c.text),
+      el('div', { class: 'muted' }, `${c.origin === 'quoted' ? 'Quoted from' : 'Extracted from'} `, source),
+      c.blocked ? el('div', { class: 'reason blocked' }, c.blocked) : null,
+      c.items.map(item));
+  };
+
+  const render = () => {
+    document.title = `Verification: ${ev.title}`;
+    const counts = { shown: 0, 'not-shown': 0, blocked: 0 };
+    for (const c of ev.claims) counts[claimStatus(c)]++;
+    const extracted = ev.claims.filter((c) => c.origin === 'extracted');
+    const page = document.getElementById('page');
+    page.replaceChildren(...[
+      el('h1', {}, ev.title),
+      el('div', { class: 'meta' },
+        el('span', {}, 'Target ', el('code', {}, ev.target.ref)),
+        el('span', {}, 'Commit ', el('code', {}, ev.target.commit.slice(0, 12))),
+        el('span', {}, `Ran ${ev.ranAt}`)),
+      el('div', { class: 'tiles' }, Object.entries(counts).map(([s, n]) => el('div', { class: 'tile' }, el('b', {}, String(n)), badge(s)))),
+      extracted.length
+        ? el('div', { class: 'note' }, el('b', {}, 'Claims read from prose: check these first. '),
+            `${extracted.map((c) => c.id).join(', ')} were extracted from the source's wording, not quoted from a list.`)
+        : null,
+      el('h2', {}, 'Environment'),
+      el('ul', {}, ev.environment.map((line) => el('li', {}, line))),
+      el('h2', {}, 'Claims'),
+      ev.claims.map(claim),
+    ].flat().filter((n) => n != null));
+  };
+  render();
+</script>
+</body>
+</html>
