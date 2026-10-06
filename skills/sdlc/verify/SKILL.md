@@ -7,7 +7,7 @@ description: Independent runtime verification. A fresh Claude Code session that 
 
 A verifier that knows how the code was written checks what it expects, not what the system does. So verification always runs in a separate session that sees one exported commit and nothing else: no git history, no transcripts, no memory. Passing tests are never evidence; evidence is what the running system does at a boundary a user or caller meets.
 
-When the repo has no `VERIFY.md` at its root, set the project up with [setup.md](setup.md) first. Otherwise, launch a run.
+When the repo has no `VERIFY.md` at its root, set the project up with [setup.md](setup.md) before anything else: setup needs no claims, so don't ask for them first. Say so in one line as you start ("No VERIFY.md here, setting the project up first."), so the user can stop you. Then launch a run.
 
 ## Launch a run
 
