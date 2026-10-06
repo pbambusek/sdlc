@@ -1,0 +1,16 @@
+{
+  "name": "pbambusek",
+  "owner": {
+    "name": "Petr Bambušek"
+  },
+  "metadata": {
+    "description": "Agent skills, grouped into plugins by area."
+  },
+  "plugins": [
+    {
+      "name": "sdlc",
+      "source": "./skills/sdlc",
+      "description": "Skills for the software delivery lifecycle: feature specs and independent runtime verification."
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "sdlc",
+  "description": "Skills for the software delivery lifecycle: feature specs and independent runtime verification.",
+  "author": {
+    "name": "Petr Bambušek"
+  },
+  "license": "Apache-2.0",
+  "skills": [
+    "./"
+  ]
+}
