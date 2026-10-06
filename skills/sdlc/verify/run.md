@@ -57,7 +57,7 @@ One item per claim is the norm. Add a second only when the claim has two parts t
 
 ## Steps
 
-Run the scripts from this folder as `node .claude/skills/verify/scripts/<name>.mts`.
+Run the scripts as `node <skill dir>/scripts/<name>.mts`, where `<skill dir>` is this skill's base directory.
 
 1. **Preflight.** Prove the isolation before anything else.
    - Run `preflight.mts`. It ends by naming one denied file: read it with your Read tool. It must be refused by a permission rule, not by a missing file.

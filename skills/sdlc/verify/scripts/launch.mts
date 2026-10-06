@@ -1,8 +1,8 @@
 /**
  * Verifies one commit against its claims in a fresh, isolated Claude Code session, and prints where the evidence page is.
  * Run it from anywhere inside the repo:
- *   node <skill>/scripts/launch.mts <spec path at the target> [ref]
- *   node <skill>/scripts/launch.mts --claims <file> [--source <label>] [ref]
+ *   node <skill dir>/scripts/launch.mts <spec path at the target> [ref]
+ *   node <skill dir>/scripts/launch.mts --claims <file> [--source <label>] [ref]
  *   options: --slug <name>, --interactive (a normal session instead of headless), --prepare-only (stop before the session)
  * The page lands in <repo>/.verify/<slug>/<timestamp>-<commit>/.
  *

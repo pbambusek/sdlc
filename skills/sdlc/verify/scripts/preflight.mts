@@ -1,6 +1,6 @@
 /**
  * Proves the session was isolated by construction before anything is verified. Run it from the run folder:
- *   node .claude/skills/verify/scripts/preflight.mts
+ *   node <skill dir>/scripts/preflight.mts
  * Exits 1 and prints every failed check when the isolation is broken; the run must then stop without a page.
  * On success it writes .verify/preflight.json, which the page builder turns into an environment line, and prints
  * one denied file for the verifier to probe with its own Read tool.

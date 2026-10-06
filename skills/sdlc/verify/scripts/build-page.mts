@@ -1,6 +1,6 @@
 /**
  * Builds `<dir>/evidence.html` from `<dir>/evidence.json` and the locked template, inlining every screenshot.
- * Usage: `node .claude/skills/verify/scripts/build-page.mts [dir, default .verify]`, from the run folder.
+ * Usage: `node <skill dir>/scripts/build-page.mts [dir, default .verify]`, from the run folder.
  * Exits 1 and lists every problem when the JSON is malformed, when the preflight has not passed, or when the evidence
  * names another commit than the one under verification. The preflight result, the launcher's transcript audit and the
  * skill version become the first environment lines, so every page states how isolated its run was and which method ran.
