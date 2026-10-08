@@ -168,8 +168,15 @@ if (!existsSync(join(verifyDir, 'evidence.json'))) {
 const out = join(repo, '.verify', slug, run);
 mkdirSync(out, { recursive: true });
 const built = spawnSync('node', [join(skillDir, 'scripts/build-page.mts'), '.verify'], { cwd: work, stdio: 'inherit' });
-for (const f of ['evidence.html', 'evidence.json', 'audit.json', 'shots']) {
+for (const f of ['evidence.html', 'audit.json', 'shots']) {
   if (existsSync(join(verifyDir, f))) cpSync(join(verifyDir, f), join(out, f), { recursive: true });
+}
+// The copy names the commit it verified, so the file alone tells a reader whether it is still about their code; malformed evidence is copied as is.
+try {
+  const evidence = JSON.parse(readFileSync(join(verifyDir, 'evidence.json'), 'utf8'));
+  writeFileSync(join(out, 'evidence.json'), JSON.stringify({ target: { ref, commit }, ...evidence }, null, 2) + '\n');
+} catch {
+  cpSync(join(verifyDir, 'evidence.json'), join(out, 'evidence.json'));
 }
 if (built.status !== 0) fail(`✖ the page did not build; the evidence is in ${out}, the run folder is ${work}`);
 console.log(`✔ ${join(out, 'evidence.html')}`);

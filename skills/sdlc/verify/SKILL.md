@@ -31,4 +31,4 @@ The session that asks for verification may be the one that wrote the code. It ha
    `<skill dir>` is this skill's base directory. The launcher starts the verifier as a new process with [run.md](run.md) as its instructions, prints a line per step, and audits the session when it ends. `--interactive` opens a normal session instead, for the user to watch or debug a run in their own terminal.
 4. **Report** what the launcher printed last: the page path, the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason. When it says the audit failed, say the page is invalid.
 
-The page and its evidence land in `<repo>/.verify/<slug>/<timestamp>-<commit>/`, which the project gitignores, and the page opens (`VERIFY_NO_OPEN=1` keeps it closed). Sharing it is the caller's decision.
+The page and its evidence land in `<repo>/.verify/<slug>/<timestamp>-<commit>/`, which the project gitignores, with the verified commit under `target` in `evidence.json`, and the page opens (`VERIFY_NO_OPEN=1` keeps it closed). Sharing it is the caller's decision.
