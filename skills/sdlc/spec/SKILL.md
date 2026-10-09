@@ -1,9 +1,9 @@
 ---
-name: feature-spec
-description: Feature spec — a one-page issue that states intent and numbered, verifiable claims while leaving the solution to whoever builds it. Use when turning a problem description (a few sentences, a screenshot), a link (Slack thread, ticket, backlog item) or a reviewed prototype into a spec, or checking whether a spec is ready to approve.
+name: spec
+description: Spec — a one-page issue that states intent and numbered, verifiable claims while leaving the solution to whoever builds it. Use when turning a problem description (a few sentences, a screenshot), a link (Slack thread, ticket, backlog item) or a reviewed prototype into a spec, or checking whether a spec is ready to approve.
 ---
 
-A **feature spec** states *what* must be true and *why*, never *how*. It is written so that anyone can build from it unattended — an agent or a person, with or without this skill — and so that the result can be checked claim by claim. A human approves it before building starts.
+A **spec** states *what* must be true and *why*, never *how*. It is written so that anyone can build from it unattended — an agent or a person, with or without this skill — and so that the result can be checked claim by claim. A human approves it before building starts.
 
 ## The concepts
 

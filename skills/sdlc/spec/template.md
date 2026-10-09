@@ -1,4 +1,4 @@
-# Feature spec template
+# Spec template
 
 Plain Markdown, so it works as a Jira or GitHub issue description. The issue title is the feature, stated as an outcome ("Any employee can propose an idea to the backlog").
 

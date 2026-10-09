@@ -6,7 +6,7 @@ Agent skills for Claude Code, grouped into plugins by area and published as a pl
 
 ### `sdlc` — software delivery lifecycle
 
-- `feature-spec` — a one-page issue stating intent and numbered, verifiable claims, leaving the solution to the builder.
+- `spec` — a one-page issue stating intent and numbered, verifiable claims, leaving the solution to the builder.
 - `build` — builds a spec as pushed commits on a draft pull request, and on a later round fixes the findings fed back about its claims, from `verify` or any other source. It ends in a result file that a person or an orchestrator acts on, and knows nothing of `verify`'s format or files.
 - `verify` — independent runtime verification: a fresh, isolated session runs one commit, drives it at its boundaries, and proves each claim on one evidence page. A project describes how to run it in `VERIFY.md` files. Experimental.
 - `prototype` — a clickable, self-contained HTML prototype of a change to a web app's page, built on the running app's look. A project describes how to capture and reproduce its look in `PROTOTYPE.md` files.
