@@ -62,10 +62,13 @@ if (problems.length > 0) {
 
 // The launcher audits the session once it ends and rebuilds the page with the verdict.
 const auditFile = path.join(dir, 'audit.json');
-const audit = existsSync(auditFile) ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; changed: string[] }) : null;
+const audit = existsSync(auditFile) ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; changed: string[]; credentials?: string[] }) : null;
 const auditLines = audit
-  ? [audit.verdict, ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : [])]
+  ? [audit.verdict, ...(audit.credentials ?? []), ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : [])]
   : ['Audit: pending; the launcher audits the session when it ends.'];
+// The credential proxy's log: one line per request that carried a declared credential, never a value.
+const logFile = path.join(dir, 'credential-requests.jsonl');
+const credentialRequests = existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Json) : null;
 
 const missing: string[] = [];
 const claims = evidence.claims.map((c) => ({
@@ -91,6 +94,7 @@ const page = {
   ranAt: target.ranAt,
   environment: [...auditLines, ...evidence.environment],
   claims,
+  credentialRequests,
 };
 const template = readFileSync(new URL('../assets/evidence.html', import.meta.url), 'utf8');
 const placeholder = '<script type="application/json" id="evidence">null</script>';

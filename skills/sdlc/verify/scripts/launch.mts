@@ -13,6 +13,9 @@
  *   - Claude Code's file tools only read the run folder, and are denied the source repo and the session transcripts;
  *   - afterwards the session's transcript is audited, and the page shows the verdict and any exported file it changed.
  * The method (run.md) comes from where the launcher runs; the claims, VERIFY.md and the code come from the target commit.
+ *
+ * When VERIFY.md declares credentials, the run holds only placeholders for them (credentials.mts): the launcher reads the real
+ * values from the declared Key Vault, and nono's proxy puts them on requests to each credential's hosts, logging every such request.
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +24,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { audit, snapshot } from './audit.mts';
+import { findValues, findValuesInProcesses, parseDeclaration, readCredentials, requireNono, startProxy } from './credentials.mts';
 
 const USAGE = 'usage: launch.mts <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--interactive]';
 const fail = (message: string): never => {
@@ -59,7 +63,14 @@ const atTarget = (path: string) => {
   }
 };
 
-if (!exportOnly && atTarget('VERIFY.md') === null) fail(`no VERIFY.md at the repo root at ${ref}: set the project up first (the skill's setup.md)`);
+const verifyMd = atTarget('VERIFY.md');
+if (!exportOnly && verifyMd === null) fail(`no VERIFY.md at the repo root at ${ref}: set the project up first (the skill's setup.md)`);
+let declaration: ReturnType<typeof parseDeclaration> = null;
+try {
+  declaration = exportOnly || verifyMd === null ? null : parseDeclaration(verifyMd);
+} catch (e) {
+  fail(`✖ ${(e as Error).message}`);
+}
 
 let claims = '';
 let source = 'none';
@@ -104,16 +115,34 @@ if (exportOnly) {
   process.exit(0);
 }
 
+// Each credential is read before the session starts, with the Azure CLI's cached login: nothing here can wait on a person.
+const reads = declaration ? requireNono(await readCredentials(declaration)) : [];
+for (const r of reads) {
+  if (r.outcome === 'read') console.log(`▶ credential ${r.name}: read from ${declaration!.vault}/${r.secret} without a prompt; the run holds a placeholder, swapped on ${r.hosts.join(', ')}`);
+  else console.log(`✖ credential ${r.name}: unavailable, ${r.reason}`);
+}
+const credentialLog = join(verifyDir, 'credential-requests.jsonl');
+const proxy = reads.some((r) => r.outcome === 'read')
+  ? await startProxy({ reads, profileFile: join(verifyDir, 'nono-profile.json'), nonoLog: join(verifyDir, 'nono-proxy.log'), log: credentialLog, baseEnv: process.env })
+  : null;
+if (proxy) console.log('▶ credential proxy (nono) started; the run holds its token, never a value');
+
+const credentialLines = reads.map((r) =>
+  r.outcome === 'read'
+    ? `- \`${r.name}\`: set in your environment as a placeholder. The run's proxy swaps it for the real value on requests to ${r.hosts.join(', ')} only; anywhere else it arrives as the placeholder.`
+    : `- \`${r.name}\`: unavailable (${r.reason}). It is not set in your environment.`,
+);
 const prompt = [
   `Verify commit ${commit} (${ref}) against the claims below. They come from ${source}, unchanged.`,
   `The skill's folder is ${skillDir}.`,
   '',
+  ...(declaration ? ['Credentials declared in VERIFY.md:', ...credentialLines, `Every request that used one is logged in \`.verify/credential-requests.jsonl\`.`, ''] : []),
   '<claims>',
   claims.trim(),
   '</claims>',
 ].join('\n');
 const childEnv: NodeJS.ProcessEnv = {
-  ...process.env,
+  ...(proxy?.env ?? process.env),
   GIT_CEILING_DIRECTORIES: dirname(work),
   CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
   VERIFY_MODE: interactive ? 'interactive' : 'headless',
@@ -125,9 +154,22 @@ for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_JOB_DIR']) dele
 const sessionId = randomUUID();
 const claudeArgs = ['--session-id', sessionId, '--settings', join(verifyDir, 'settings.json'), '--append-system-prompt-file', join(skillDir, 'run.md'), '--allowedTools', 'Bash'];
 
+// The proxy runs in this process, so the session is never spawned synchronously: a blocked event loop would stall every request.
+let sampled = 0;
+const processLeaks = new Set<string>();
+const sampleProcesses = (pid: number | undefined) => {
+  if (!proxy || !pid) return;
+  proxy.collect();
+  const { hits, processes } = findValuesInProcesses({ values: proxy.values, rootPid: pid });
+  sampled = Math.max(sampled, processes);
+  for (const h of hits) processLeaks.add(h);
+};
 if (interactive) {
   console.log('▶ starting an interactive verification session (approve the folder trust prompt)');
-  spawnSync('claude', [...claudeArgs, prompt], { cwd: work, env: childEnv, stdio: 'inherit' });
+  const session = spawn('claude', [...claudeArgs, prompt], { cwd: work, env: childEnv, stdio: 'inherit' });
+  const timer = setInterval(() => sampleProcesses(session.pid), 15_000);
+  await new Promise((done) => session.once('close', done));
+  clearInterval(timer);
 } else {
   console.log(`▶ verifying headless, session ${sessionId}`);
   const session = spawn('claude', ['-p', prompt, ...claudeArgs, '--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose'], {
@@ -135,6 +177,9 @@ if (interactive) {
     env: childEnv,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
+  // The run's processes are sampled while they live, to show no environment in the run holds a real value.
+  const timer = setInterval(() => sampleProcesses(session.pid), 15_000);
+  session.once('close', () => clearInterval(timer));
   // One line per step, so the terminal shows the session at work.
   const short = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
   for await (const line of createInterface({ input: session.stdout })) {
@@ -153,11 +198,33 @@ if (interactive) {
   await new Promise((done) => session.once('close', done));
 }
 
+// Once the session ends, its proxy token and placeholders reach nothing.
+await proxy?.stop();
+if (proxy) console.log('▶ credential proxy (nono) stopped');
+
 console.log('▶ auditing the session');
 const transcript = join(configDir, 'projects', work.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
 const result = audit({ transcript: existsSync(transcript) ? transcript : null, work, repos: [repo, mainCheckout], allowed: [skillDir], before });
+if (declaration) {
+  const leaks = proxy
+    ? [...findValues({ values: proxy.values, root: work, texts: existsSync(transcript) ? { 'the session transcript': readFileSync(transcript, 'utf8') } : {} }), ...processLeaks]
+    : [];
+  const requests = existsSync(credentialLog) ? readFileSync(credentialLog, 'utf8').split('\n').filter(Boolean).length : 0;
+  const read = reads.filter((r) => r.outcome === 'read').map((r) => r.name);
+  const unavailable = reads.flatMap((r) => (r.outcome === 'unavailable' ? [`${r.name} (${r.reason})`] : []));
+  result.credentials = [
+    `Credentials: ${read.length ? `${read.join(', ')} held as ${read.length === 1 ? 'a placeholder' : 'placeholders'}, swapped by the proxy on ${read.length === 1 ? 'its' : 'their'} declared hosts` : 'none could be read'}${unavailable.length ? `; unavailable: ${unavailable.join('; ')}` : ''}. ${requests} credentialed request${requests === 1 ? '' : 's'} logged.`,
+    ...(proxy
+      ? [leaks.length
+          ? `Credential check: VIOLATED, a real value appeared: ${leaks.join('; ')}. Rotate it.`
+          : `Credential check: clean, no real value in the run folder, the session transcript, or the environments of ${sampled} sampled run process${sampled === 1 ? '' : 'es'}.`]
+      : []),
+  ];
+  if (leaks.length) result.clean = false;
+}
 writeFileSync(join(verifyDir, 'audit.json'), JSON.stringify(result, null, 2) + '\n');
 console.log(result.verdict);
+for (const line of result.credentials ?? []) console.log(line);
 
 if (!existsSync(join(verifyDir, 'evidence.json'))) {
   console.error(`✖ the session wrote no evidence; its folder is kept at ${work}`);
@@ -168,7 +235,7 @@ if (!existsSync(join(verifyDir, 'evidence.json'))) {
 const out = join(repo, '.verify', slug, run);
 mkdirSync(out, { recursive: true });
 const built = spawnSync('node', [join(skillDir, 'scripts/build-page.mts'), '.verify'], { cwd: work, stdio: 'inherit' });
-for (const f of ['evidence.html', 'audit.json', 'shots']) {
+for (const f of ['evidence.html', 'audit.json', 'shots', 'credential-requests.jsonl']) {
   if (existsSync(join(verifyDir, f))) cpSync(join(verifyDir, f), join(out, f), { recursive: true });
 }
 // The copy names the commit it verified, so the file alone tells a reader whether it is still about their code; malformed evidence is copied as is.

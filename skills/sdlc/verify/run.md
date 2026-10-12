@@ -23,6 +23,14 @@ A verifier that knows how the code was written checks what it expects, not what 
 
 A claim that needs a person to act (send a message from their phone) is `blocked` in either mode, with the reason "needs a person". The fix is a seam that lets a run act without one, described in the project's `VERIFY.md`; say which seam would do it.
 
+## Credentials
+
+A real service needs a credential, and you never hold one. When the root `VERIFY.md` declares credentials, your first message lists them. A credential that was read is set in your environment as a placeholder: the run's proxy token. The proxy (`HTTPS_PROXY`) puts the real value on requests to that credential's hosts only. Use it as the repo's `VERIFY.md` says, such as writing the variable into an `.env`: what lands there is the placeholder. A credential that couldn't be read is not set.
+
+- A claim that needs a credential that couldn't be read is `blocked`. Its reason names the credential and the reason your first message gives. Never go on as if you had the key.
+- A claim that needs a real service for which `VERIFY.md` declares no credential is `blocked`. Its reason names the service.
+- `.verify/credential-requests.jsonl` logs every request that carried a credential, without values. Cite it as evidence when a claim is about those requests.
+
 ## Claims
 
 Take the claims from the claims source:

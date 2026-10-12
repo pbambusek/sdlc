@@ -12,6 +12,16 @@ Copy into a run (`launch.mts --copy <path>`):
 
 - `<path>`: <what it is, such as an .env that holds only secret references>.
 
+<!-- The repo root's VERIFY.md only, when a claim needs a real service. A run holds a token; the launcher's nono proxy puts the real value on requests to the declared hosts. -->
+
+## Credentials
+
+<What each credential is for, and how the run hands it to the system (such as writing the variable into an .env).>
+
+```json
+{ "vault": "<key vault>", "credentials": [{ "name": "<ENV_VAR>", "secret": "<vault secret>", "hosts": ["<host>"], "header": "Authorization", "format": "Bearer {}" }] }
+```
+
 ## Identity & flags
 
 <How to act as a user, or as another user. Which flags are on, which you can change, and which you can't.>

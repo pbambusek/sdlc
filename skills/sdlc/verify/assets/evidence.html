@@ -129,6 +129,13 @@
       el('ul', {}, ev.environment.map((line) => el('li', {}, line))),
       el('h2', {}, 'Claims'),
       ev.claims.map(claim),
+      ev.credentialRequests
+        ? [el('h2', {}, 'Credentialed requests'),
+            el('p', { class: 'muted' }, 'Every request on which the proxy put a real credential: credential, host, method, path, status, time. No values.'),
+            el('pre', {}, ev.credentialRequests.length
+              ? ev.credentialRequests.map((r) => [r.credential, r.host, r.method, r.path, r.status ?? 'no response', r.time].join('  ')).join('\n')
+              : 'None.')]
+        : null,
     ].flat().filter((n) => n != null));
   };
   render();
