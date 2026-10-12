@@ -61,9 +61,10 @@ const checks = lines(
     '.check_runs[] | {id, name, app: .app.slug, status, conclusion, url: .html_url, title: .output.title, summary: .output.summary}'),
 ).map((c) => ({ ...c, summary: c.summary ? String(c.summary).slice(0, SUMMARY_CHARS) : null }));
 
+// `sdlc/` statuses are the pipeline's own, such as sdlc/verify: feedback reads the stage itself, never its status.
 const statuses = lines(
   gh('api', `repos/${repo}/commits/${commit}/status`, '--jq', '.statuses[] | {context, state, description, url: .target_url}'),
-);
+).filter((s) => !String(s.context).startsWith('sdlc/'));
 
 const FAILED = new Set(['failure', 'timed_out', 'cancelled', 'startup_failure', 'action_required']);
 for (const c of checks) {
