@@ -39,11 +39,15 @@ Take the claims from the claims source:
 - Prose only: each checkable statement is a claim, `origin: extracted`, numbered `C1…`. The page asks the reviewer to check extracted claims first.
 - A single sentence is one claim, `origin: quoted`. A sentence that asserts several things stays one claim, with an item for each part.
 
+When the source groups its claims under headings, copy them to `groups`, in the source's order: one `{ "title", "claims" }` per heading, its title verbatim and `claims` the ids under it. A source without headings has no `groups`; never invent them.
+
 A claim that can't be checked as written is `blocked`, with a reason that says why. Keep its wording; never rewrite a claim to make it checkable.
 
 ## Evidence items
 
-Write each item to `.verify/evidence.json` as you collect it. The shape is in `<skill dir>/assets/example/evidence.json`: an optional `title`, `environment` (one line per thing about the setup a reader needs, such as the user you acted as or a seam you forced), and `claims`, each with `id`, `text`, `origin` and its `items`. `build-page.mts` checks it.
+Write each item to `.verify/evidence.json` as you collect it. The shape is in `<skill dir>/assets/example/evidence.json`: an optional `title`, `environment`, optional `groups`, and `claims`, each with `id`, `text`, `origin` and its `items`. `build-page.mts` checks it.
+
+`environment` holds one line per thing about the whole run's setup a reader needs, such as the user you acted as. Setup for some claims only, such as a seam you forced or a restart with a flag off, goes first in each of their items' `how`, where the reader judges the claim.
 
 - **`type`** is one of:
   - `screenshot`: a PNG under `.verify/shots/`, with `payload` as `shots/<name>.png`;
@@ -53,7 +57,7 @@ Write each item to `.verify/evidence.json` as you collect it. The shape is in `<
   - `event`: an analytics payload, a channel call or a stored event.
 - **`payload`** is the observed thing itself: the response, the rows, the spans. `true`, a count or your own summary isn't a payload. For a `blocked` item, it is what you tried and what came back.
 - **`shows`** says in one line what the reader sees in the payload.
-- **`how`** gives the exact steps: the commands or requests, in order, with their bodies. Someone else must be able to rerun them, so write them complete.
+- **`how`** gives the exact steps, starting with any setup particular to this claim: the commands or requests, in order, with their bodies. Someone else must be able to rerun them, so write them complete.
 - **`status`** is `shown`, `not-shown` or `blocked`. `not-shown` means you looked and it wasn't there; `blocked` means you couldn't look. Both need a `reason`.
 
 Every claim has at least one item; one per claim is the norm. Add a second only when the claim has two parts that one observation can't show. The page derives each claim's status from its items: not shown if any item is not shown, shown when every item is, blocked otherwise.

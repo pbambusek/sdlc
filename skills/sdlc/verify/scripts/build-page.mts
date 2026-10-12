@@ -3,7 +3,7 @@
  * the summary: the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason.
  * Usage: `node <skill dir>/scripts/build-page.mts [dir, default .verify]`, from the run folder.
  * Exits 1 and lists every problem when the evidence is malformed. The target and the source come from the launcher's
- * `target.json`, and its audit verdict becomes the first environment line.
+ * `target.json`, and its audit becomes the page's trust line. A screenshot cited by several claims is embedded once.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -24,6 +24,24 @@ const validate = (e: unknown): string[] => {
   need(e.title === undefined || isText(e.title), 'title', 'text when present');
   need(Array.isArray(e.environment) && e.environment.every(isText), 'environment', 'a list of text');
   if (!Array.isArray(e.claims) || e.claims.length === 0) return [...problems, 'claims: a non-empty list'];
+  const ids = new Set(e.claims.map((c: unknown) => (isObject(c) ? c.id : undefined)));
+  if (e.groups !== undefined) {
+    if (!Array.isArray(e.groups)) problems.push('groups: a list when present');
+    else {
+      const grouped = new Set<unknown>();
+      e.groups.forEach((g: unknown, gi) => {
+        const at = `groups.${gi}`;
+        if (!isObject(g)) return problems.push(`${at}: must be an object`);
+        need(isText(g.title), `${at}.title`, 'required text');
+        if (!Array.isArray(g.claims) || g.claims.length === 0) return problems.push(`${at}.claims: a non-empty list of claim ids`);
+        for (const id of g.claims) {
+          need(ids.has(id), `${at}.claims`, `${String(id)} is not a claim id`);
+          need(!grouped.has(id), `${at}.claims`, `${String(id)} is already in another group`);
+          grouped.add(id);
+        }
+      });
+    }
+  }
   e.claims.forEach((c: unknown, ci) => {
     const at = `claims.${ci}`;
     if (!isObject(c)) return problems.push(`${at}: must be an object`);
@@ -62,25 +80,30 @@ if (problems.length > 0) {
 
 // The launcher audits the session once it ends and rebuilds the page with the verdict.
 const auditFile = path.join(dir, 'audit.json');
-const audit = existsSync(auditFile) ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; changed: string[]; credentials?: string[] }) : null;
-const auditLines = audit
-  ? [audit.verdict, ...(audit.credentials ?? []), ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : [])]
-  : ['Audit: pending; the launcher audits the session when it ends.'];
+const audit = existsSync(auditFile)
+  ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; clean: boolean; changed: string[]; credentials?: string[] })
+  : null;
+const trust = audit
+  ? {
+      state: audit.clean && audit.changed.length === 0 ? 'clean' : 'findings',
+      lines: [audit.verdict, ...(audit.credentials ?? []), ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : [])],
+    }
+  : { state: 'pending', lines: ['Audit: pending; the launcher audits the session when it ends.'] };
 // The credential proxy's log: one line per request that carried a declared credential, never a value.
 const logFile = path.join(dir, 'credential-requests.jsonl');
 const credentialRequests = existsSync(logFile) ? readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Json) : null;
 
+// Screenshots are embedded once each, keyed by payload, however many claims cite them.
 const missing: string[] = [];
-const claims = evidence.claims.map((c) => ({
-  ...c,
-  status: claimStatus(c),
-  items: c.items.map((i) => {
-    if (i.type !== 'screenshot') return i;
+const images: Record<string, string> = {};
+for (const c of evidence.claims)
+  for (const i of c.items) {
+    if (i.type !== 'screenshot' || i.payload in images) continue;
     const file = path.join(dir, i.payload);
-    if (!existsSync(file)) return (missing.push(`${c.id}: ${i.payload}`), i);
-    return { ...i, src: `data:image/png;base64,${readFileSync(file).toString('base64')}` };
-  }),
-}));
+    if (!existsSync(file)) missing.push(`${c.id}: ${i.payload}`);
+    else images[i.payload] = `data:image/png;base64,${readFileSync(file).toString('base64')}`;
+  }
+const claims = evidence.claims.map((c) => ({ ...c, status: claimStatus(c) }));
 if (missing.length > 0) {
   for (const m of missing) console.error(`screenshot not found: ${m}`);
   process.exit(1);
@@ -92,8 +115,9 @@ const page = {
   target: { ref: target.ref, commit: target.commit },
   source: target.source,
   ranAt: target.ranAt,
-  environment: [...auditLines, ...evidence.environment],
+  trust,
   claims,
+  images,
   credentialRequests,
 };
 const template = readFileSync(new URL('../assets/evidence.html', import.meta.url), 'utf8');

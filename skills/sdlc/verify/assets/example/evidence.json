@@ -1,8 +1,12 @@
 {
   "title": "PROJ-42: any employee can propose an idea to the backlog",
   "environment": [
-    "web as a second dev user with the backlogEdit flag forced off, to act as an employee outside the product team.",
-    "The duplicate check's service call was forced to answer 500 for C12."
+    "web as a second dev user with the backlogEdit flag forced off, to act as an employee outside the product team."
+  ],
+  "groups": [
+    { "title": "Before the idea posts", "claims": ["C5", "C12"] },
+    { "title": "After posting", "claims": ["C15"] },
+    { "title": "Old links", "claims": ["C24"] }
   ],
   "claims": [
     {
@@ -27,7 +31,7 @@
         {
           "type": "trace",
           "shows": "The backlog.duplicate_check span ends with error status and carries the failure reason.",
-          "how": "Forced the duplicate check to answer 500, proposed \"Idea while the check is forced to fail\", then read the web app's exported span.",
+          "how": "Setup for this claim: the duplicate check's service call forced to answer 500. Proposed \"Idea while the check is forced to fail\", then read the web app's exported span.",
           "payload": "{\n  \"name\": \"backlog.duplicate_check\",\n  \"status\": { \"code\": 2, \"message\": \"duplicate check answered 500\" },\n  \"attributes\": {\n    \"app.source.type\": \"web\",\n    \"app.backlog.duplicate_check.outcome\": \"failed\",\n    \"app.backlog.duplicate_check.failure\": \"duplicate check answered 500\"\n  }\n}",
           "highlight": ["\"code\": 2", "\"app.backlog.duplicate_check.failure\": \"duplicate check answered 500\""],
           "status": "shown"
