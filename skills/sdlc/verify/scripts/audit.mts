@@ -17,6 +17,8 @@ export interface Audit {
   clean: boolean;
   findings: { tool: string; input: string; why: string }[];
   changed: string[];
+  // Set by the launcher when VERIFY.md declares credentials: what the run held, and whether a real value leaked.
+  credentials?: string[];
 }
 
 // Package and tool caches under the home folder that a run may name without learning anything about the code.
