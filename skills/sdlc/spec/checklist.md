@@ -17,6 +17,8 @@ A spec is **ready** when every item passes.
 
 ## Claims
 - [ ] Numbered, ordered as a user or caller meets them.
+- [ ] When they serve more than one outcome, grouped under `###` headings, each naming one outcome or situation without an "and"; numbers run on across groups, never restarting.
+- [ ] No two groups could ship separately and each be useful alone; if they could, ask whether this is two specs.
 - [ ] Each is observable at a boundary: UI, CLI, API, sent message, workflow result, or telemetry.
 - [ ] Each is provable by exactly one piece of evidence from running the change.
 - [ ] Each names only what is visible at the boundary; any table, column, endpoint path, library, internal function, or new component it names is a solution to strip out.

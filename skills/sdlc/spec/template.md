@@ -14,9 +14,12 @@ Plain Markdown, so it works as a Jira or GitHub issue description. The issue tit
 Pointers (orientation, not design): <existing screens, modules, workflows or docs this touches, and where the feature is consumed>.
 
 ## Claims
+### <An outcome a user or caller reaches, or a situation they are in>
 1. <Who/what, in which situation, observes what — at a boundary.>
 2. <...>
    Calibration: <a case that counts>; <a case that does not>.
+
+### <The next outcome>
 3. <...>
 
 ## Constraints
@@ -35,6 +38,7 @@ Pointers (orientation, not design): <existing screens, modules, workflows or doc
 - **Intent** — the end state, not a feature list. Read alone, it steers the builder right on a case no claim covers.
 - **Context** — self-contained: summarise what a linked thread decided instead of writing "as discussed". Pointers name what exists; designing what is new is the builder's job.
 - **Claims** — numbered from 1, in the order a user or caller meets them: happy path first, then the empty, failure and permission cases next to the step they belong to. Phrase each in the situation it holds in: "When …", "While …", "If … then …".
+- **Claim groups** — when the claims serve more than one outcome, group them under `###` headings, in the order a user meets them. A heading names one outcome a user or caller reaches, or one situation they are in ("A proposer can merge into an open item"). A heading that needs an "and" is two groups; claims that need the same starting situation belong together; a group of one claim is fine. Numbers run on across groups (1…n, never restarting), so every claim has one number in the whole spec. Claims that all serve one outcome need no heading. Verification reports by group.
 - **Constraints** — a constraint that evidence could show is a claim; move it there.
 - **Out of scope** — the adjacent ideas a capable builder would be tempted to add.
 - **Open questions** — the section is empty in an approved spec; keep the heading so its emptiness is visible.

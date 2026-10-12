@@ -1,6 +1,6 @@
 # Worked specs
 
-Two shapes the same template takes: a UI feature written after a prototype review, and a backend feature with no screen. Both are illustrative; treat the product details as invented. Each opens with the builder note from [template.md](template.md) in a real spec; it is left out here so the examples show only what varies.
+Two shapes the same template takes: a UI feature written after a prototype review, its claims grouped by outcome, and a backend feature with no screen, whose claims serve one outcome and need no group. Both are illustrative; treat the product details as invented. Each opens with the builder note from [template.md](template.md) in a real spec; it is left out here so the examples show only what varies.
 
 ## UI: any employee can propose an idea to the backlog
 
@@ -14,8 +14,11 @@ Pointers (orientation, not design): `/backlog`, the team-only create form, the i
 Prototype (illustration): `prototypes/propose-idea/index.html`, states `#list`, `#match`, `#being-built`.
 
 ## Claims
+### Starting a proposal
 1. A non-team employee sees a "Propose an idea" action on `/backlog`.
 2. The proposal asks for a title and a problem/outcome description, and nothing else.
+
+### Before the idea posts
 3. Before posting, the user sees up to 3 existing items that look like the same idea, each with its title and vote count.
    Calibration: "Weekly summary of what my team shipped" matches "Builders can open 'Last week'"; "Weekly summary for my manager by email" does not.
 4. Choosing a match adds the user's vote to it and creates no new item.
@@ -23,9 +26,13 @@ Prototype (illustration): `prototypes/propose-idea/index.html`, states `#list`, 
 6. Dismissing the matches posts the idea as typed, with 1 vote from the proposer.
 7. With no matches, the idea posts without an extra step.
 8. While the duplicate check is unavailable (it fails or takes over ~5 s), the user is told it did not run and can still post.
+
+### Proposed items on the backlog
 9. A proposed item shows its proposer in the list and in the detail panel.
 10. A non-team user sees no Edit or Delete on any item, including their own.
 11. The team can edit, move and delete proposed items as they can team-created ones.
+
+### The backlog list
 12. Items being built are listed above the open ones under a "Being built" heading, each with its vote count and a note that voting is closed.
 13. At 1440 px, every row can be told apart at a glance: it shows its full title, a one-line summary and its vote count.
    Calibration: a row with its title and a one-line summary counts; a row with only its title does not, even when the title is shown in full.
