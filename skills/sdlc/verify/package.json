@@ -1,9 +1,0 @@
-{
-  "name": "sdlc-verify",
-  "private": true,
-  "type": "module",
-  "description": "The verify launcher's one dependency: srt's proxy, which swaps a run's credential placeholders on their declared hosts.",
-  "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.78"
-  }
-}

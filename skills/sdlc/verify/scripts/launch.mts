@@ -15,7 +15,7 @@
  * The method (run.md) comes from where the launcher runs; the claims, VERIFY.md and the code come from the target commit.
  *
  * When VERIFY.md declares credentials, the run holds only placeholders for them (credentials.mts): the launcher reads the real
- * values from the declared Key Vault and srt's proxy swaps them in on each credential's hosts, logging every such request.
+ * values from the declared Key Vault, and nono's proxy puts them on requests to each credential's hosts, logging every such request.
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -24,7 +24,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { audit, snapshot } from './audit.mts';
-import { findValues, findValuesInProcesses, parseDeclaration, readCredentials, startProxy } from './credentials.mts';
+import { findValues, findValuesInProcesses, parseDeclaration, readCredentials, requireNono, startProxy } from './credentials.mts';
 
 const USAGE = 'usage: launch.mts <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--interactive]';
 const fail = (message: string): never => {
@@ -116,13 +116,16 @@ if (exportOnly) {
 }
 
 // Each credential is read before the session starts, with the Azure CLI's cached login: nothing here can wait on a person.
-const reads = declaration ? await readCredentials(declaration) : [];
+const reads = declaration ? requireNono(await readCredentials(declaration)) : [];
 for (const r of reads) {
   if (r.outcome === 'read') console.log(`▶ credential ${r.name}: read from ${declaration!.vault}/${r.secret} without a prompt; the run holds a placeholder, swapped on ${r.hosts.join(', ')}`);
   else console.log(`✖ credential ${r.name}: unavailable, ${r.reason}`);
 }
 const credentialLog = join(verifyDir, 'credential-requests.jsonl');
-const proxy = reads.some((r) => r.outcome === 'read') ? await startProxy({ skillDir, reads, log: credentialLog, baseEnv: process.env }) : null;
+const proxy = reads.some((r) => r.outcome === 'read')
+  ? await startProxy({ reads, profileFile: join(verifyDir, 'nono-profile.json'), nonoLog: join(verifyDir, 'nono-proxy.log'), log: credentialLog, baseEnv: process.env })
+  : null;
+if (proxy) console.log('▶ credential proxy (nono) started; the run holds its token, never a value');
 
 const credentialLines = reads.map((r) =>
   r.outcome === 'read'
@@ -156,6 +159,7 @@ let sampled = 0;
 const processLeaks = new Set<string>();
 const sampleProcesses = (pid: number | undefined) => {
   if (!proxy || !pid) return;
+  proxy.collect();
   const { hits, processes } = findValuesInProcesses({ values: proxy.values, rootPid: pid });
   sampled = Math.max(sampled, processes);
   for (const h of hits) processLeaks.add(h);
@@ -196,7 +200,7 @@ if (interactive) {
 
 // Once the session ends, its proxy token and placeholders reach nothing.
 await proxy?.stop();
-if (proxy) console.log('▶ credential proxy stopped');
+if (proxy) console.log('▶ credential proxy (nono) stopped');
 
 console.log('▶ auditing the session');
 const transcript = join(configDir, 'projects', work.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
