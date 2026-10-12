@@ -40,7 +40,10 @@ Each question names the claims or findings it is about and gives your recommende
 2. **Read the feedback**, when given. Find in it, for each finding, what it is about (a claim, or behaviour no claim covers), what was observed and how to reproduce it, and the commit it was observed at. That commit must be HEAD or an ancestor of it; otherwise the feedback is stale: ask. Feedback that names no commit is about HEAD. Sort every finding:
    - a claim isn't met: reproduce it with the finding's steps, compare with what was observed, and fix it;
    - a claim couldn't be checked: when what is missing is a seam (a way to act without a person), add the seam to the code. Otherwise ask;
-   - behaviour no claim covers: fix it when the intent covers it; otherwise ask.
+   - behaviour no claim covers: fix it when the intent covers it; otherwise ask;
+   - the project's bar isn't met (a CI check failed, a repo rule a reviewer cites): reproduce it with the project's own command and fix it. A check that should have run and didn't: fix the cause when it is in the repo (a workflow's trigger); otherwise ask.
+
+   A finding marked advisory is fixed when it is cheap and inside the intent or the repo's rules; otherwise leave it.
 
    Claims the feedback found met stay working. Done when every finding has its action.
 3. **Build.** Meet every claim at its boundary, and fix what step 2 sorted. A requirement the change adds to running the system (a variable, a seam, a service) goes in the repo's docs on running it, in the same commit. Change the behaviour, never the evidence: no paths that only a check takes, no special cases for the feedback's inputs, no edits to the feedback or the spec.
