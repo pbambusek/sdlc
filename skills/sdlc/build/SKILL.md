@@ -1,11 +1,11 @@
 ---
 name: build
-description: Build from a spec — implement its claims as pushed commits on a draft pull request, and on a later round fix what feedback on those claims found. Use when asked to build or implement a spec, ticket or issue, or to address findings about a build — from a verification run, a reviewer or a person.
+description: Build from a spec — implement its claims as pushed commits on a pull request, and on a later round fix what feedback on those claims found. Use when asked to build or implement a spec, ticket or issue, or to address findings about a build — from a verification run, a reviewer or a person.
 ---
 
 # Build a spec
 
-The **spec** is the contract: its claims are the acceptance criteria, and its intent decides any case no claim covers. How to meet them is your call. A build ends in commits pushed to a branch, a draft pull request, and a **result** that tells whoever started the build what happened. Checking the build is someone else's job, done against the spec and the commit alone: never offer your own work as proof.
+The **spec** is the contract: its claims are the acceptance criteria, and its intent decides any case no claim covers. How to meet them is your call. A build ends in commits pushed to a branch, a pull request, and a **result** that tells whoever started the build what happened. Checking the build is someone else's job, done against the spec and the commit alone: never offer your own work as proof.
 
 ## Inputs
 
@@ -48,7 +48,7 @@ Each question names the claims or findings it is about and gives your recommende
    Claims the feedback found met stay working. Done when every finding has its action.
 3. **Build.** Meet every claim at its boundary, and fix what step 2 sorted. A requirement the change adds to running the system (a variable, a seam, a service) goes in the repo's docs on running it, in the same commit. Change the behaviour, never the evidence: no paths that only a check takes, no special cases for the feedback's inputs, no edits to the feedback or the spec.
 4. **Meet the project's bar.** Run what its CI would run and what its rules ask for: formatters, linters, type checks, tests. Done when all of it passes.
-5. **Publish.** Commit, push to the branch (from a detached HEAD: push `HEAD` to it), and open a draft pull request the way the repo does it (its template, its title rule, its tooling), linking `--source`. An existing pull request for the branch just gets the push. With no commit, push nothing and open nothing. Never mark it ready for review.
+5. **Publish.** Commit, push to the branch (from a detached HEAD: push `HEAD` to it), and open a pull request, not a draft, the way the repo does it (its template, its title rule, its tooling), linking `--source`. When the branch already has a pull request, every push updates its body to describe the change as it now stands on the branch, in the same template: the whole change, not this round's delta. With no commit, push nothing and open nothing.
 6. **Report the result**: write it to `--result` when given, and end with it.
 
 ## Result
