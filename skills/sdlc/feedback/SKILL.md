@@ -25,15 +25,15 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
 
 ## Steps
 
-1. **Read the rules**: the repo's `FEEDBACK.md` at the commit (`git show <commit>:FEEDBACK.md`), and the spec when given. Done when you know, for each section, whether the repo says something or the default applies.
+1. **Read the rules**: the repo's `FEEDBACK.md` at the commit (`git show <commit>:FEEDBACK.md`), and the spec when given. Done when you know, for each check and for review, whether the repo says something or the default applies.
 2. **Read the signals** with the forge's own tools (`gh` on GitHub): the commit's check runs and statuses, the log of each failed job, and the pull request the commit heads, with its changed files, the reviews submitted on this commit and its unresolved review threads. When one can't be read, report the error and stop: feedback built on half the signals is worse than none.
-3. **CI.** For each check run and status:
+3. **CI.** Name each check run `<workflow file> / <check name>`: the workflow file is the `path` of the run its details URL points at. Find its entry in `FEEDBACK.md`, read its result where the entry's Result says (the failed job's log by default), and apply the entry's Finding and Blocked over these defaults:
    - still running (`pending`): `blocked`, "still running when read";
-   - failed: a finding, `bar` unless it plainly concerns a claim. `observed` is the failing test, error or rule from its log;
-   - failed for a reason outside the code (a runner lost, a quota, a secret missing, a service down): `blocked`, with the reason;
-   - succeeded or skipped: nothing, unless `FEEDBACK.md` says to read it anyway (a Terraform plan is green and can still be wrong).
+   - failed: a finding, `bar` unless it plainly concerns a claim. `observed` is the failing test, error or rule from its result;
+   - failed or cancelled for a reason outside the code (a runner lost, a quota, a secret missing, a service down): `blocked`, with the reason;
+   - succeeded, skipped or `neutral`: nothing, unless the entry's Finding says what to look for (a Terraform plan is green and can still be wrong).
 
-   A check `FEEDBACK.md` lists under Expected that isn't on the commit is an `advisory` `bar` finding: "expected `<name>`, none ran on `<commit>`". So is a check you plainly miss for what the pull request's files change (Terraform files changed, no plan). Raise it; someone checks it later. Done when every check and status is accounted for.
+   A check whose entry says `Expected: every commit` and isn't on the commit is an `advisory` `bar` finding: "expected `<name>`, none ran on `<commit>`". So is a `when triggered` check whose workflow trigger matches the pull request's changed files, and that isn't on the commit. Raise it; someone checks it later. Done when every check and status is accounted for.
 4. **Verification**, when `--verify` is given. When `audit.json` isn't `clean`, or `evidence.json` is missing or has no claims, the run is invalid: one `blocked` entry with the audit's verdict, and nothing from its evidence. Otherwise each claim's status comes from its items: not shown if any item is not shown, shown when every item is, blocked otherwise.
    - not shown: an `unmet` finding about that claim. `observed` is the item's `reason` and what its `payload` shows;
    - blocked: an `unchecked` finding about that claim, with the item's `reason`;
@@ -50,7 +50,7 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
   "findings": [
     {
       "id": "F1",
-      "source": "ci:Infra Plan / plan",
+      "source": "ci:infra-plan.yml / plan",
       "kind": "unmet",
       "about": ["C3"],
       "severity": "blocking",
@@ -65,7 +65,7 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
 
 - **`kind`**: `unmet`, a claim isn't met; `unchecked`, a claim couldn't be checked; `uncovered`, behaviour no claim covers; `bar`, the project's bar isn't met (a check failed or didn't run, a repo rule broken).
 - **`about`**: the spec's claim ids the finding is about; empty for `bar` and `uncovered`.
-- **`source`**: `ci:<workflow> / <check name>` (`ci:<check name>` for a check outside GitHub Actions, or a status), `verify`, or `review:<login>`. Several workflows can name a job the same, so the workflow is part of the name.
+- **`source`**: `ci:<workflow file> / <check name>` (`ci:<check name>` for a check outside GitHub Actions, or a status), `verify`, or `review:<login>`. Several workflows can name a job the same, so the workflow file is part of the name.
 - **`blocked`**: a signal nobody could read. It goes to a person, not the builder.
 - **`outcome`**: `fix` when any finding is `blocking`; otherwise `blocked` when `blocked` is not empty; otherwise `clean`.
 
