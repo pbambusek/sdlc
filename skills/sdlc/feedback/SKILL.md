@@ -14,7 +14,7 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
 ## Inputs
 
 ```
-/sdlc:feedback <commit> [--pr <number or url>] [--spec <path, url or key>] [--verify <run folder>] [--out <file>]
+/sdlc:feedback <commit> [--pr <number or url>] [--spec <path, url or key>] [--verify <run folder>] [--out <file>] [--headless]
 ```
 
 - **`<commit>`**: the pushed commit the round produced. Every signal must be about this commit.
@@ -22,6 +22,7 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
 - **`--spec`**: the spec the commit builds, for claim ids. Read a path at the commit; a URL or key with the tracker's tools.
 - **`--verify`**: a verification run's folder, holding `evidence.json` and `audit.json`. Without it, verification is not part of this round.
 - **`--out`**: the file to write the feedback to. It is also the last thing you print.
+- **`--headless`**: nobody reads the session; an orchestrator reads `--out` once it ends. Never ask, offer next steps or wait for a reply: the run ends with the feedback file. Without it, you may ask the user and wait.
 
 ## Steps
 
@@ -39,7 +40,7 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
    - blocked: an `unchecked` finding about that claim, with the item's `reason`;
    - a probe claim (`origin: probe`, ids `X1…`) not shown: an `uncovered` finding, its id in `observed`.
 5. **Review.** Read every review submitted on this commit and every unresolved thread, whatever commit it started on. Skip comments by the pull request's author, and reviewers `FEEDBACK.md` excludes. Each requested change is one finding: `unmet` when it says a claim isn't met, `uncovered` when it is about behaviour no claim covers, `bar` otherwise. Severity is the reviewer's own when it marks one (critical and warning are `blocking`, a nit or suggestion `advisory`); unmarked, a change requested in a `CHANGES_REQUESTED` review or an unresolved thread is `blocking`, a comment `advisory`. Done when every unresolved thread and every review on the commit is a finding or skipped by rule.
-6. **Write the feedback** to `--out`, and end with it.
+6. **Write the feedback** to `--out`, and end with it. Headless, nothing follows it: no question, no offer of what to do next.
 
 ## Feedback
 
