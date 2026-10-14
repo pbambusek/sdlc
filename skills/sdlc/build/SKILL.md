@@ -20,7 +20,7 @@ The **spec** is the contract: its claims are the acceptance criteria, and its in
 - **`--result`**: a file to write the result to.
 - **`--headless`**: nobody can answer you mid-run. Never ask in the session: a question ends the build as `asked`. Without it, you may ask the user and wait.
 
-Build on the checkout as it stands: its HEAD is your base.
+Build on the checkout as it stands: its HEAD is your base, brought up to date with the default branch in step 3.
 
 ## Asking
 
@@ -46,10 +46,11 @@ Each question names the claims or findings it is about and gives your recommende
    A finding marked advisory is fixed when it is cheap and inside the intent or the repo's rules; otherwise leave it.
 
    Claims the feedback found met stay working. Done when every finding has its action.
-3. **Build.** Meet every claim at its boundary, and fix what step 2 sorted. A requirement the change adds to running the system (a variable, a seam, a service) goes in the repo's docs on running it, in the same commit. Change the behaviour, never the evidence: no paths that only a check takes, no special cases for the feedback's inputs, no edits to the feedback or the spec.
-4. **Meet the project's bar.** Run what its CI would run and what its rules ask for: formatters, linters, type checks, tests. Done when all of it passes.
-5. **Publish.** Commit, push to the branch (from a detached HEAD: push `HEAD` to it), and open a pull request, not a draft, the way the repo does it (its template, its title rule, its tooling), linking `--source`. When the branch already has a pull request, every push updates its body to describe the change as it now stands on the branch, in the same template: the whole change, not this round's delta. With no commit, push nothing and open nothing.
-6. **Report the result**: write it to `--result` when given, and end with it.
+3. **Take in the default branch.** When the branch already exists, fetch the remote default branch and merge it into HEAD. Merge, never rebase: the commits feedback names must stay ancestors of HEAD, and the push must not rewrite what reviewers have seen. Resolve every conflict so both the default branch's change and every claim survive; when one has to give way, ask. Done when HEAD contains the remote default branch's head.
+4. **Build.** Meet every claim at its boundary, and fix what step 2 sorted. A requirement the change adds to running the system (a variable, a seam, a service) goes in the repo's docs on running it, in the same commit. Change the behaviour, never the evidence: no paths that only a check takes, no special cases for the feedback's inputs, no edits to the feedback or the spec.
+5. **Meet the project's bar.** Run what its CI would run and what its rules ask for: formatters, linters, type checks, tests. Done when all of it passes, on the merged result.
+6. **Publish.** Commit, and before pushing fetch the default branch again: when it has moved, repeat steps 3 and 5. Then push to the branch (from a detached HEAD: push `HEAD` to it), and open a pull request, not a draft, the way the repo does it (its template, its title rule, its tooling), linking `--source`. When the branch already has a pull request, every push updates its body to describe the change as it now stands on the branch, in the same template: the whole change, not this round's delta. With no commit, push nothing and open nothing.
+7. **Report the result**: write it to `--result` when given, and end with it.
 
 ## Result
 
