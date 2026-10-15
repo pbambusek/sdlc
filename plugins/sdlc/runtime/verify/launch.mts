@@ -155,8 +155,15 @@ writeFileSync(join(verifyDir, 'target.json'), JSON.stringify({ ref, commit, sour
 
 // Commands get this environment and nothing else of the launcher's: no login, key or token the owner's shell holds.
 const KEEP = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TZ', 'USER', 'LOGNAME'];
+// A folder in /tmp (a tool's shim, such as Yarn's) can't be read from the workspace, so a command found there would be
+// refused; without it, the next folder on PATH answers.
+const inTmp = (p: string) => /^\/(private\/)?tmp(\/|$)/.test(p);
 const baseEnv: Record<string, string> = {
   ...Object.fromEntries(KEEP.flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))),
+  PATH: (process.env.PATH ?? '')
+    .split(':')
+    .filter((p) => p && !inTmp(p))
+    .join(':'),
   // One shell for every verifier, whatever the owner's login shell is.
   SHELL: execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim(),
   GIT_CEILING_DIRECTORIES: dirname(work),
