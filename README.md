@@ -49,7 +49,6 @@ plugins/<plugin>/                     what an install carries, and nothing else
 tests/<plugin>/runtime/<skill>/       the runtime's tests, mirroring the plugin
 tests/<plugin>/skills/<skill>/        a skill's fixtures and evals
 tests/repo/                           tests of the repo's own checks
-specs/                                specs for changes to this repo
 .github/                              the repo check (check.mjs) and CI: check, lint, and tests on macOS and Linux
 ```
 
