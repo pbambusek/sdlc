@@ -8,23 +8,33 @@
  * The page lands in <repo>/.verify/<slug>/<timestamp>-<commit>/ and opens; VERIFY_NO_OPEN=1 keeps it closed.
  *
  * What keeps the verifier honest:
- *   - the target is exported with `git archive` into a new temp folder: no history, no diff, no untracked files;
- *   - the session is a new process: none of the caller's session, git's search stops above the folder, auto-memory is off;
- *   - Claude Code's file tools only read the run folder, and are denied the source repo and the session transcripts;
+ *   - the target is exported with `git archive` into a new run folder: no history, no diff, no untracked files;
+ *   - every command the verifier runs executes in the run's workspace (workspace.mts), confined to its folder, a home of its
+ *     own and the toolchains it builds with: the source repo, every session's transcripts and the owner's keys and logins are
+ *     not there for it. Each command is logged with its exit status. A run the workspace refused anything is broken: it gets
+ *     no page. Without a workspace, no run starts;
+ *   - the verifier itself stays outside the workspace, with its own login and transcript, and loads nothing of the owner's
+ *     Claude Code setup (memory, instructions, plugins, skills, connectors). Its only tools are running a command in the
+ *     workspace and viewing an image the workspace saved; anything else is refused without asking;
  *   - afterwards the session's transcript is audited, and the page shows the verdict and any exported file it changed.
- * The method (run.md) comes from where the launcher runs; the claims, VERIFY.md and the code come from the target commit.
+ * The method (run.md) comes from where the launcher runs; the claims and the code come from the target commit; the VERIFY.md
+ * files come from the remote's default branch (instructions.mts), so the commit under test can't rewrite its own instructions.
  *
  * When VERIFY.md declares credentials, the run holds only placeholders for them (credentials.mts): the launcher reads the real
  * values from the declared Key Vault, and nono's proxy puts them on requests to each credential's hosts, logging every such request.
+ * A declared credential that can't be read stops the launch.
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { audit, snapshot } from './audit.mts';
-import { findValues, findValuesInProcesses, parseDeclaration, readCredentials, requireNono, startProxy } from './credentials.mts';
+import { findValues, findValuesInProcesses, parseDeclaration, readCredentials, startProxy } from './credentials.mts';
+import { applyInstructions, readInstructions, type Instructions } from './instructions.mts';
+import { openWorkspace, prepareWorkspace, RUNS, workspaceMissing } from './workspace.mts';
+import type { LoggedCommand } from './workspace-shell.mts';
 
 const USAGE = 'usage: launch.mts <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--interactive]';
 const fail = (message: string): never => {
@@ -51,7 +61,7 @@ const interactive = flags.has('--interactive');
 
 const git = (repo: string, ...a: string[]) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8', maxBuffer: 1 << 30 }).trim();
 const repo = git(process.cwd(), 'rev-parse', '--show-toplevel');
-// A worktree's main checkout holds the same history and every other worktree, so both are denied, and runs are named after it.
+// A worktree's main checkout holds the same history and every other worktree, so the audit treats both as the source repo.
 const mainCheckout = dirname(realpathSync(resolve(repo, git(repo, 'rev-parse', '--git-common-dir'))));
 const commit = git(repo, 'rev-parse', '--verify', `${refArg}^{commit}`);
 const ref = refArg === 'HEAD' ? git(repo, 'rev-parse', '--abbrev-ref', 'HEAD') : refArg;
@@ -62,14 +72,35 @@ const atTarget = (path: string) => {
     return null;
   }
 };
+const noRun = (why: string) => fail(`✖ ${why}. No verifier started.`);
 
-const verifyMd = atTarget('VERIFY.md');
-if (!exportOnly && verifyMd === null) fail(`no VERIFY.md at the repo root at ${ref}: set the project up first (the skill's setup.md)`);
+// The workspace comes first: without it nothing else is worth reading.
+if (!exportOnly) {
+  const missing = workspaceMissing();
+  if (missing) noRun(`the run's workspace can't be set up on this machine: ${missing}`);
+}
+
+// Setup writes VERIFY.md, so it reads the commit's own; a run follows the default branch's.
+let instructions: Instructions | null = null;
+if (!exportOnly) {
+  try {
+    instructions = readInstructions({ repo, target: commit });
+  } catch (e) {
+    noRun((e as Error).message);
+  }
+  const { remote, branch, changed } = instructions!;
+  console.log(`▶ instructions: the VERIFY.md files on ${remote}/${branch} (${instructions!.commit.slice(0, 12)})`);
+  if (changed.length) {
+    console.log(`▶ ${ref} changes ${changed.length === 1 ? 'this VERIFY.md file' : 'these VERIFY.md files'}: ${changed.join(', ')}.`);
+    console.log(`  The run follows ${remote}/${branch}'s version${changed.length === 1 ? '' : 's'}. A change to VERIFY.md goes to ${branch} in its own pull request first, never with the change under test.`);
+  }
+}
+const verifyMd = exportOnly ? atTarget('VERIFY.md') : instructions!.files.get('VERIFY.md')!;
 let declaration: ReturnType<typeof parseDeclaration> = null;
 try {
   declaration = exportOnly || verifyMd === null ? null : parseDeclaration(verifyMd);
 } catch (e) {
-  fail(`✖ ${(e as Error).message}`);
+  noRun((e as Error).message);
 }
 
 let claims = '';
@@ -86,14 +117,29 @@ if (exportOnly) {
 }
 if (!exportOnly && !claims.trim()) fail('the claims source is empty');
 
+// Each credential is read before anything starts, with the Azure CLI's cached login: nothing here can wait on a person. A
+// declared credential is meant to be there, so one that can't be read stops the launch for a person to fix.
+const reads = declaration ? await readCredentials(declaration) : [];
+const unreadable = reads.filter((r) => r.outcome === 'unavailable');
+if (unreadable.length) {
+  for (const r of unreadable) console.error(`✖ credential ${r.name} can't be read: ${r.outcome === 'unavailable' ? r.reason : ''}`);
+  noRun(`VERIFY.md declares ${unreadable.length === 1 ? 'a credential' : 'credentials'} that can't be read`);
+}
+for (const r of reads) if (r.outcome === 'read') console.log(`▶ credential ${r.name}: read from ${declaration!.vault}/${r.secret} without a prompt; the workspace holds a placeholder, swapped on ${r.hosts.join(', ')}`);
+
 const slug = ((flags.get('--slug') as string | undefined) ?? (spec ? basename(spec).replace(/\.md$/, '') : exportOnly ? 'export' : 'claims')).replace(/[^a-zA-Z0-9-]+/g, '-');
 const ranAt = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 const run = `${ranAt.replaceAll(':', '-')}-${commit.slice(0, 7)}`;
-const work = realpathSync(mkdtempSync(join(tmpdir(), `verify-${basename(mainCheckout)}-${slug}-`)));
+mkdirSync(RUNS, { recursive: true, mode: 0o700 });
+// The run folder is the workspace's; the state folder beside it is the launcher's (the profile, the verifier's shell, the
+// command and credential logs), out of the workspace's reach.
+const work = realpathSync(mkdtempSync(join(RUNS, 'r-')));
+const stateDir = realpathSync(mkdtempSync(join(RUNS, 'l-')));
 const skillDir = realpathSync(resolve(import.meta.dirname, '..'));
-// Claude Code keeps session transcripts and auto-memory under its config dir's `projects/`.
+// The owner's Claude Code keeps session transcripts and auto-memory under its config dir's `projects/`.
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-const denied = [...new Set([repo, mainCheckout, join(configDir, 'projects')])];
+// The workspace never grants these, but a temp it may read could hold them, so they are refused wherever they are.
+const deny = [...new Set([repo, mainCheckout, configDir].filter((p) => existsSync(p)).map((p) => realpathSync(p)))];
 
 console.log(`▶ exporting ${ref} (${commit.slice(0, 12)}) to ${work}`);
 execFileSync('bash', ['-c', `git -C "$1" archive "$2" | tar -x -C "$3"`, '_', repo, commit, work], { stdio: 'inherit' });
@@ -101,84 +147,119 @@ for (const p of copies) {
   if (existsSync(join(repo, p))) cpSync(join(repo, p), join(work, p), { recursive: true });
   else console.warn(`  copy: ${p} is not in ${repo}; skipped`);
 }
+if (instructions) applyInstructions(work, instructions);
 const before = snapshot(work);
 
 const verifyDir = join(work, '.verify');
 mkdirSync(verifyDir, { recursive: true });
 writeFileSync(join(verifyDir, 'target.json'), JSON.stringify({ ref, commit, source, ranAt }, null, 2) + '\n');
-// The skill's own folder stays readable for the example evidence and the page builder.
-const settings = { autoMemoryEnabled: false, permissions: { deny: denied.map((p) => `Read(/${p}/**)`), additionalDirectories: [skillDir] } };
-writeFileSync(join(verifyDir, 'settings.json'), JSON.stringify(settings, null, 2) + '\n');
+
+// Commands get this environment and nothing else of the launcher's: no login, key or token the owner's shell holds.
+const KEEP = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TZ', 'USER', 'LOGNAME'];
+const baseEnv: Record<string, string> = {
+  ...Object.fromEntries(KEEP.flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))),
+  // One shell for every verifier, whatever the owner's login shell is.
+  SHELL: execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim(),
+  GIT_CEILING_DIRECTORIES: dirname(work),
+  VERIFY_MODE: interactive ? 'interactive' : 'headless',
+};
 
 if (exportOnly) {
   console.log(`exported ${work}`);
+  // Setup tries the project's commands in the same workspace a run gets.
+  if (!workspaceMissing()) {
+    const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
+    console.log(`a shell in its workspace: cd ${quote(work)} && ${prepareWorkspace({ work, skillDir, stateDir, deny, env: baseEnv }).wrap(['bash']).map(quote).join(' ')}`);
+  }
   process.exit(0);
 }
 
-// Each credential is read before the session starts, with the Azure CLI's cached login: nothing here can wait on a person.
-const reads = declaration ? requireNono(await readCredentials(declaration)) : [];
-for (const r of reads) {
-  if (r.outcome === 'read') console.log(`▶ credential ${r.name}: read from ${declaration!.vault}/${r.secret} without a prompt; the run holds a placeholder, swapped on ${r.hosts.join(', ')}`);
-  else console.log(`✖ credential ${r.name}: unavailable, ${r.reason}`);
-}
-const credentialLog = join(verifyDir, 'credential-requests.jsonl');
-const proxy = reads.some((r) => r.outcome === 'read')
-  ? await startProxy({ reads, profileFile: join(verifyDir, 'nono-profile.json'), nonoLog: join(verifyDir, 'nono-proxy.log'), log: credentialLog, baseEnv: process.env })
+const credentialLog = join(stateDir, 'credential-requests.jsonl');
+const proxy = reads.length
+  ? await startProxy({ reads, profileFile: join(stateDir, 'nono-proxy-profile.json'), nonoLog: join(stateDir, 'nono-proxy.log'), log: credentialLog, baseEnv, trustFile: join(verifyDir, 'proxy-ca.pem') })
   : null;
-if (proxy) console.log('▶ credential proxy (nono) started; the run holds its token, never a value');
+if (proxy) console.log('▶ credential proxy (nono) started; the workspace holds its token, never a value');
 
-const credentialLines = reads.map((r) =>
-  r.outcome === 'read'
-    ? `- \`${r.name}\`: set in your environment as a placeholder. The run's proxy swaps it for the real value on requests to ${r.hosts.join(', ')} only; anywhere else it arrives as the placeholder.`
-    : `- \`${r.name}\`: unavailable (${r.reason}). It is not set in your environment.`,
+let workspace;
+try {
+  workspace = await openWorkspace(prepareWorkspace({ work, skillDir, stateDir, deny, env: (proxy?.env as Record<string, string> | undefined) ?? baseEnv }));
+} catch (e) {
+  await proxy?.stop();
+  noRun(`the run's workspace can't be set up on this machine: ${(e as Error).message}`);
+}
+const ws = workspace!;
+console.log(`▶ ${ws.banner}`);
+
+// The verifier's own model credential, when the owner's environment holds one, must not reach the workspace either.
+const modelCredentials = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'].flatMap((k) => (process.env[k] ? [{ name: `the verifier's ${k}`, value: process.env[k]! }] : []));
+const scanned = [...(proxy?.values ?? []), ...modelCredentials];
+
+const credentialLines = reads.map(
+  (r) => `- \`${r.name}\`: set in the workspace's environment as a placeholder. The run's proxy swaps it for the real value on requests to ${r.hosts.join(', ')} only; anywhere else it arrives as the placeholder.`,
 );
 const prompt = [
   `Verify commit ${commit} (${ref}) against the claims below. They come from ${source}, unchanged.`,
-  `The skill's folder is ${skillDir}.`,
+  `The skill's folder is ${skillDir}. You run ${interactive ? 'interactive' : 'headless'}.`,
+  `The VERIFY.md files in this folder are those on ${instructions!.remote}/${instructions!.branch}, the project's default branch.`,
   '',
   ...(declaration ? ['Credentials declared in VERIFY.md:', ...credentialLines, `Every request that used one is logged in \`.verify/credential-requests.jsonl\`.`, ''] : []),
   '<claims>',
   claims.trim(),
   '</claims>',
 ].join('\n');
+
 const childEnv: NodeJS.ProcessEnv = {
-  ...(proxy?.env ?? process.env),
-  GIT_CEILING_DIRECTORIES: dirname(work),
+  ...process.env,
+  CLAUDE_CODE_SHELL_PREFIX: ws.shell,
   CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-  VERIFY_MODE: interactive ? 'interactive' : 'headless',
-  // One shell for every verifier, whatever the owner's login shell is.
-  SHELL: execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim(),
+  ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+  VERIFY_MODE: baseEnv.VERIFY_MODE,
+  SHELL: baseEnv.SHELL,
 };
 // A launcher started from inside a Claude Code session must not hand the verifier that session's identity.
 for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_JOB_DIR']) delete childEnv[k];
 const sessionId = randomUUID();
-const claudeArgs = ['--session-id', sessionId, '--settings', join(verifyDir, 'settings.json'), '--append-system-prompt-file', join(skillDir, 'run.md'), '--allowedTools', 'Bash'];
+// Nothing of the owner's setup loads (safe mode), no settings file is read, and no connector starts. The only tools are a
+// command in the workspace and viewing an image there; everything else is refused without asking anyone (dontAsk).
+const images = ['png', 'jpg', 'jpeg', 'gif', 'webp'].map((ext) => `Read(/${work}/**/*.${ext})`);
+const claudeArgs = [
+  '--session-id', sessionId,
+  '--safe-mode', '--restricted', '--strict-mcp-config',
+  '--tools', 'Bash,Read',
+  '--allowedTools', 'Bash', ...images,
+  '--permission-mode', 'dontAsk',
+  '--append-system-prompt-file', join(skillDir, 'run.md'),
+];
 
 // The proxy runs in this process, so the session is never spawned synchronously: a blocked event loop would stall every request.
 let sampled = 0;
 const processLeaks = new Set<string>();
-const sampleProcesses = (pid: number | undefined) => {
-  if (!proxy || !pid) return;
-  proxy.collect();
-  const { hits, processes } = findValuesInProcesses({ values: proxy.values, rootPid: pid });
+const sample = () => {
+  if (proxy) {
+    proxy.collect();
+    // The verifier cites the log; the copy in the state folder is the one the page keeps.
+    if (existsSync(credentialLog)) copyFileSync(credentialLog, join(verifyDir, 'credential-requests.jsonl'));
+  }
+  if (!scanned.length) return;
+  const { hits, processes } = findValuesInProcesses({ values: scanned, rootPid: ws.pid });
   sampled = Math.max(sampled, processes);
   for (const h of hits) processLeaks.add(h);
 };
 if (interactive) {
   console.log('▶ starting an interactive verification session (approve the folder trust prompt)');
   const session = spawn('claude', [...claudeArgs, prompt], { cwd: work, env: childEnv, stdio: 'inherit' });
-  const timer = setInterval(() => sampleProcesses(session.pid), 15_000);
+  const timer = setInterval(sample, 15_000);
   await new Promise((done) => session.once('close', done));
   clearInterval(timer);
 } else {
   console.log(`▶ verifying headless, session ${sessionId}`);
-  const session = spawn('claude', ['-p', prompt, ...claudeArgs, '--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose'], {
+  const session = spawn('claude', ['-p', prompt, ...claudeArgs, '--output-format', 'stream-json', '--verbose'], {
     cwd: work,
     env: childEnv,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
-  // The run's processes are sampled while they live, to show no environment in the run holds a real value.
-  const timer = setInterval(() => sampleProcesses(session.pid), 15_000);
+  // The workspace's processes are sampled while they live, to show no environment in it holds a real value.
+  const timer = setInterval(sample, 15_000);
   session.once('close', () => clearInterval(timer));
   // One line per step, so the terminal shows the session at work.
   const short = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -197,47 +278,86 @@ if (interactive) {
   }
   await new Promise((done) => session.once('close', done));
 }
+sample();
 
-// Once the session ends, its proxy token and placeholders reach nothing.
+// Whatever the run left running is stopped: the workspace's processes and the containers that appeared during it.
+const closed = await ws.close();
+if (closed.stopped.length) console.log(`▶ stopped what the run left running: ${closed.stopped.join(', ')}`);
+// Once the workspace is gone, its proxy token and placeholders reach nothing.
 await proxy?.stop();
 if (proxy) console.log('▶ credential proxy (nono) stopped');
 
 console.log('▶ auditing the session');
 const transcript = join(configDir, 'projects', work.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
-const result = audit({ transcript: existsSync(transcript) ? transcript : null, work, repos: [repo, mainCheckout], allowed: [skillDir], before });
-if (declaration) {
-  const leaks = proxy
-    ? [...findValues({ values: proxy.values, root: work, texts: existsSync(transcript) ? { 'the session transcript': readFileSync(transcript, 'utf8') } : {} }), ...processLeaks]
-    : [];
-  const requests = existsSync(credentialLog) ? readFileSync(credentialLog, 'utf8').split('\n').filter(Boolean).length : 0;
-  const read = reads.filter((r) => r.outcome === 'read').map((r) => r.name);
-  const unavailable = reads.flatMap((r) => (r.outcome === 'unavailable' ? [`${r.name} (${r.reason})`] : []));
-  result.credentials = [
-    `Credentials: ${read.length ? `${read.join(', ')} held as ${read.length === 1 ? 'a placeholder' : 'placeholders'}, swapped by the proxy on ${read.length === 1 ? 'its' : 'their'} declared hosts` : 'none could be read'}${unavailable.length ? `; unavailable: ${unavailable.join('; ')}` : ''}. ${requests} credentialed request${requests === 1 ? '' : 's'} logged.`,
-    ...(proxy
-      ? [leaks.length
-          ? `Credential check: VIOLATED, a real value appeared: ${leaks.join('; ')}. Rotate it.`
-          : `Credential check: clean, no real value in the run folder, the session transcript, or the environments of ${sampled} sampled run process${sampled === 1 ? '' : 'es'}.`]
-      : []),
-  ];
-  if (leaks.length) result.clean = false;
-}
+const result = audit({ transcript: existsSync(transcript) ? transcript : null, work, home: ws.home, repos: [repo, mainCheckout], allowed: [skillDir], before });
+
+const commands: LoggedCommand[] = readFileSync(ws.commandLog, 'utf8')
+  .split('\n')
+  .filter(Boolean)
+  .map((l) => JSON.parse(l));
+// What the workspace refused: each command's refusals, seen in its output, and those of the workspace's own process.
+const refused = new Map<string, string>();
+for (const c of commands) for (const r of c.refused) refused.has(r.path) || refused.set(r.path, `${c.command.slice(0, 80)}: ${r.line}`);
+for (const r of closed.refused ?? []) refused.has(r.path) || refused.set(r.path, `the workspace itself: ${r.access.toLowerCase()}`);
+result.workspace = [
+  ws.summary,
+  `Commands: ${commands.length} ran in the workspace, each logged with its exit status; it refused ${refused.size ? `${refused.size} access${refused.size === 1 ? '' : 'es'}` : 'none'}.`,
+  ...(closed.stopped.length ? [`Still running when the session ended, stopped by the launcher: ${closed.stopped.join(', ')}.`] : []),
+];
+
+const leaks = scanned.length
+  ? [...findValues({ values: scanned, root: work, texts: existsSync(transcript) ? { 'the session transcript': readFileSync(transcript, 'utf8') } : {} }), ...processLeaks]
+  : [];
+const requests = existsSync(credentialLog) ? readFileSync(credentialLog, 'utf8').split('\n').filter(Boolean).length : 0;
+result.credentials = [
+  ...(declaration
+    ? [`Credentials: ${reads.map((r) => r.name).join(', ')} held as ${reads.length === 1 ? 'a placeholder' : 'placeholders'}, swapped by the proxy on ${reads.length === 1 ? 'its' : 'their'} declared hosts. ${requests} credentialed request${requests === 1 ? '' : 's'} logged.`]
+    : []),
+  ...(scanned.length
+    ? [leaks.length
+        ? `Credential check: VIOLATED, a real value appeared: ${leaks.join('; ')}. Rotate it.`
+        : `Credential check: clean, no real value in the run folder, the session transcript, or the environments of ${sampled} sampled workspace process${sampled === 1 ? '' : 'es'}.`]
+    : []),
+];
+if (leaks.length) result.clean = false;
 writeFileSync(join(verifyDir, 'audit.json'), JSON.stringify(result, null, 2) + '\n');
 console.log(result.verdict);
-for (const line of result.credentials ?? []) console.log(line);
+for (const line of [...result.workspace, ...result.credentials]) console.log(line);
+
+const keep = () => {
+  console.error(`  the run folder is kept at ${work}; the command log is ${ws.commandLog}`);
+  console.error(`  the session transcript is ${transcript}`);
+};
+if (closed.stillRunning.length) {
+  console.error(`✖ the run left these running and they could not be stopped: ${closed.stillRunning.join('; ')}`);
+  keep();
+  process.exit(1);
+}
+// A refused access means the run reached for something outside it, or the workspace lacks what the project needs: either
+// way it is broken, to be fixed, and it gets no page to act on.
+if (refused.size || closed.refused === null) {
+  if (refused.size) {
+    console.error(`✖ the workspace refused ${refused.size} access${refused.size === 1 ? '' : 'es'}; this run is broken and has no page:`);
+    for (const [path, where] of refused) console.error(`  ${path}  (${where})`);
+  } else console.error('✖ the workspace printed no report of what it refused, so the run cannot be trusted; it has no page');
+  keep();
+  process.exit(1);
+}
 
 if (!existsSync(join(verifyDir, 'evidence.json'))) {
-  console.error(`✖ the session wrote no evidence; its folder is kept at ${work}`);
-  console.error(`  to inspect or continue it: cd ${work} && claude --resume ${sessionId}`);
+  console.error('✖ the session wrote no evidence');
+  keep();
   process.exit(1);
 }
 // Rebuilt so the page carries the audit; the builder prints the summary.
 const out = join(repo, '.verify', slug, run);
 mkdirSync(out, { recursive: true });
+if (existsSync(credentialLog)) copyFileSync(credentialLog, join(verifyDir, 'credential-requests.jsonl'));
 const built = spawnSync('node', [join(skillDir, 'scripts/build-page.mts'), '.verify'], { cwd: work, stdio: 'inherit' });
 for (const f of ['evidence.html', 'audit.json', 'shots', 'credential-requests.jsonl']) {
   if (existsSync(join(verifyDir, f))) cpSync(join(verifyDir, f), join(out, f), { recursive: true });
 }
+copyFileSync(ws.commandLog, join(out, 'commands.jsonl'));
 // The copy names the commit it verified, so the file alone tells a reader whether it is still about their code; malformed evidence is copied as is.
 try {
   const evidence = JSON.parse(readFileSync(join(verifyDir, 'evidence.json'), 'utf8'));
@@ -245,8 +365,15 @@ try {
 } catch {
   cpSync(join(verifyDir, 'evidence.json'), join(out, 'evidence.json'));
 }
-if (built.status !== 0) fail(`✖ the page did not build; the evidence is in ${out}, the run folder is ${work}`);
+if (built.status !== 0) {
+  console.error(`✖ the page did not build; the evidence is in ${out}`);
+  keep();
+  process.exit(1);
+}
 console.log(`✔ ${join(out, 'evidence.html')}`);
+// Everything a reader needs is in the page's folder; the run folder holds the run's own home and caches.
+rmSync(work, { recursive: true, force: true });
+rmSync(stateDir, { recursive: true, force: true });
 
 const opener = process.platform === 'darwin' ? 'open' : process.platform === 'linux' ? 'xdg-open' : null;
 if (opener && !process.env.VERIFY_NO_OPEN) spawnSync(opener, [join(out, 'evidence.html')], { stdio: 'ignore' });

@@ -81,12 +81,12 @@ if (problems.length > 0) {
 // The launcher audits the session once it ends and rebuilds the page with the verdict.
 const auditFile = path.join(dir, 'audit.json');
 const audit = existsSync(auditFile)
-  ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; clean: boolean; changed: string[]; credentials?: string[] })
+  ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; clean: boolean; changed: string[]; credentials?: string[]; workspace?: string[] })
   : null;
 const trust = audit
   ? {
       state: audit.clean && audit.changed.length === 0 ? 'clean' : 'findings',
-      lines: [audit.verdict, ...(audit.credentials ?? []), ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : [])],
+      lines: [audit.verdict, ...(audit.workspace ?? []), ...(audit.credentials ?? []), ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : [])],
     }
   : { state: 'pending', lines: ['Audit: pending; the launcher audits the session when it ends.'] };
 // The credential proxy's log: one line per request that carried a declared credential, never a value.

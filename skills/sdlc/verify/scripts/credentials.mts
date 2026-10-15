@@ -5,9 +5,9 @@
  * also the value of each credential's variable. nono puts the real value on every request through the proxy to a declared host,
  * and tunnels everything else untouched, so the token arrives anywhere else as itself.
  */
-import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, relative } from 'node:path';
 
@@ -88,13 +88,6 @@ export const readCredentials = async (d: Declaration): Promise<Read[]> =>
     ),
   );
 
-/** Marks every read credential unavailable when the proxy can't run, so their claims are blocked rather than run without a key. */
-export const requireNono = (reads: Read[]): Read[] => {
-  if (!reads.some((r) => r.outcome === 'read')) return reads;
-  if (spawnSync('nono', ['--version'], { encoding: 'utf8' }).status === 0) return reads;
-  return reads.map((r): Read => (r.outcome === 'read' ? { ...r, outcome: 'unavailable', reason: 'nono is not installed (brew install nono), so nothing can inject it' } : r));
-};
-
 const freePort = () =>
   new Promise<number>((done, fail) => {
     const server = createServer();
@@ -106,11 +99,12 @@ const freePort = () =>
   });
 
 /**
- * Starts `nono proxy` with the credentials that were read, and returns the environment a run gets: the launcher's own, plus the
+ * Starts `nono proxy` with the credentials that were read, and returns the environment a run gets: `baseEnv`, plus the
  * proxy and trust variables, with each read credential's variable set to the run's token and each unavailable one removed.
+ * The trust bundle is copied to `trustFile`, where the run can read it.
  * `collect` turns nono's log into the run's credential log; `stop` ends the proxy, after which the token reaches nothing.
  */
-export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: { reads: Read[]; profileFile: string; nonoLog: string; log: string; baseEnv: NodeJS.ProcessEnv }) => {
+export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv, trustFile }: { reads: Read[]; profileFile: string; nonoLog: string; log: string; baseEnv: NodeJS.ProcessEnv; trustFile: string }) => {
   const available = reads.filter((r) => r.outcome === 'read');
   const token = randomBytes(32).toString('hex');
   const port = await freePort();
@@ -131,8 +125,8 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
   writeFileSync(profileFile, JSON.stringify(profile, null, 2) + '\n', { mode: 0o600 });
   writeFileSync(log, '');
 
-  // The real values live only in nono's own environment, never in the run's.
-  const nonoEnv: NodeJS.ProcessEnv = { ...baseEnv, NONO_PROXY_PASS: token, ...Object.fromEntries(available.map((c, i) => [`VERIFY_NONO_VALUE_${i}`, c.value])) };
+  // The real values live only in nono's own environment, never in the run's. nono runs beside the launcher, with its environment.
+  const nonoEnv: NodeJS.ProcessEnv = { ...process.env, NONO_PROXY_PASS: token, ...Object.fromEntries(available.map((c, i) => [`VERIFY_NONO_VALUE_${i}`, c.value])) };
   const args = ['proxy', '-v', '--port', String(port), '--profile', profileFile, '--log-file', nonoLog, ...routes.flatMap((r) => ['--credential', r.id])];
   const nono = spawn('nono', args, { env: nonoEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   const killNono = () => nono.kill('SIGTERM');
@@ -153,7 +147,8 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
     nono.once('exit', (code) => (clearTimeout(timer), fail(new Error(`nono proxy exited (${code}): ${masked()}`))));
   });
 
-  const proxyUrl = `http://nono:${token}@127.0.0.1:${port}`;
+  copyFileSync(bundle, trustFile);
+  const proxyUrl =`http://nono:${token}@127.0.0.1:${port}`;
   const noProxy = ['localhost', '127.0.0.1', '::1', baseEnv.NO_PROXY].filter(Boolean).join(',');
   const env: NodeJS.ProcessEnv = {
     ...baseEnv,
@@ -165,7 +160,7 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
     no_proxy: noProxy,
     // Node's fetch ignores the proxy variables unless told to honour them.
     NODE_USE_ENV_PROXY: '1',
-    ...Object.fromEntries(['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO'].map((k) => [k, bundle])),
+    ...Object.fromEntries(['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO'].map((k) => [k, trustFile])),
     ...Object.fromEntries(available.map((c) => [c.name, token])),
   };
   // A credential that could not be read stays out of the run, so nothing runs as if it had the key.
@@ -233,9 +228,21 @@ export const findValues = ({ values, root, texts }: { values: Values; root: stri
 
 /** Each live process under `rootPid` whose environment holds a real value, as `<credential> in the environment of <command>`. */
 export const findValuesInProcesses = ({ values, rootPid }: { values: Values; rootPid: number }) => {
-  // `ps -E` appends each process's environment to its command, for processes this user owns.
-  const out = execFileSync('ps', ['-E', '-ww', '-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 1 << 28 });
-  const rows = out.split('\n').map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter((m) => m !== null);
+  // macOS's `ps -E` appends each process's environment to its command, for processes this user owns; Linux keeps it in /proc.
+  const linux = process.platform === 'linux';
+  const out = execFileSync('ps', [...(linux ? [] : ['-E']), '-ww', '-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 1 << 28 });
+  const environ = (pid: string) => {
+    try {
+      return readFileSync(`/proc/${pid}/environ`, 'latin1').replaceAll('\0', ' ');
+    } catch {
+      return '';
+    }
+  };
+  const rows = out
+    .split('\n')
+    .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
+    .filter((m) => m !== null)
+    .map((m) => (linux ? [m[0], m[1], m[2], `${m[3]} ${environ(m[1]!)}`] : m));
   const children = new Map<number, number[]>();
   for (const [, pid, ppid] of rows) children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), Number(pid)]);
   const tree = new Set<number>();

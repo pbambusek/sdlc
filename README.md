@@ -8,7 +8,7 @@ Agent skills for Claude Code, grouped into plugins by area and published as a pl
 
 - `spec` — a one-page issue stating intent and numbered, verifiable claims, leaving the solution to the builder.
 - `build` — builds a spec as pushed commits on a draft pull request, and on a later round fixes the findings fed back about its claims, from `verify` or any other source. It ends in a result file that a person or an orchestrator acts on, and knows nothing of `verify`'s format or files.
-- `verify` — independent runtime verification: a fresh, isolated session runs one commit, drives it at its boundaries, and proves each claim on one evidence page. A project describes how to run it in `VERIFY.md` files. Experimental.
+- `verify` — independent runtime verification: a fresh, isolated session runs one commit, drives it at its boundaries, and proves each claim on one evidence page. Every command it runs executes in a confined workspace, and the verifier stays outside it. A project describes how to run it in `VERIFY.md` files, which a run reads from the default branch. Needs [nono](https://nono.sh). Experimental.
 - `feedback` — reads what CI, a verification run and code review found on one pushed commit, and writes it as findings for the next `build` round. It reads only and never waits: an orchestrator calls it once the signals are in. A project describes how to read its checks in a `FEEDBACK.md` file.
 - `prototype` — a clickable, self-contained HTML prototype of a change to a web app's page, built on the running app's look. A project describes how to capture and reproduce its look in `PROTOTYPE.md` files.
 
@@ -55,6 +55,12 @@ Add a clone as a local marketplace; it is read in place, so edits apply on the n
 ```
 
 To try a single plugin without installing it: `claude --plugin-dir ./skills/sdlc`.
+
+A skill's scripts run on Node 24 without a build step. Their tests live outside the plugins, in `tests/`, and CI runs them on macOS and Linux; the verify skill's need nono:
+
+```
+node --test 'tests/**/*.test.mts'
+```
 
 Adding a skill: create `skills/<plugin>/<skill>/SKILL.md` with `name` and `description` frontmatter, where `name` matches the folder, and list it above. Adding a plugin: create `skills/<plugin>/.claude-plugin/plugin.json` with `"skills": ["./"]` and add an entry to `marketplace.json`. Supporting files are referenced relative to the skill's folder.
 

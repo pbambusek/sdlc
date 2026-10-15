@@ -1,6 +1,6 @@
 # Verify: <project or package>
 
-The facts about <project or package> that the verify skill reads. Update this file in the change that alters any of them.
+The facts about <project or package> that the verify skill reads. A run follows this file as it is on the default branch, so a change to it goes there in its own pull request, ahead of the change that needs it.
 
 ## Surface
 

@@ -7,10 +7,25 @@ permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      NONO_VERSION: 0.80.0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - run: node .github/check.mjs
+      # The verify skill's workspace is confined by nono: Seatbelt on macOS, Landlock on Linux.
+      - if: runner.os == 'macOS'
+        run: brew install nono
+      - if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o nono.deb "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/nono-cli_${NONO_VERSION}_amd64.deb"
+          sudo dpkg -i nono.deb
+      - run: nono --version
+      - run: node --test 'tests/**/*.test.mts'

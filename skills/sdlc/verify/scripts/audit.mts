@@ -19,6 +19,8 @@ export interface Audit {
   changed: string[];
   // Set by the launcher when VERIFY.md declares credentials: what the run held, and whether a real value leaked.
   credentials?: string[];
+  // Set by the launcher: the workspace the commands ran in, and what it refused.
+  workspace?: string[];
 }
 
 // Package and tool caches under the home folder that a run may name without learning anything about the code.
@@ -51,7 +53,7 @@ export const snapshot = (root: string): Map<string, string> => {
   return out;
 };
 
-export const audit = ({ transcript, work, repos, allowed, before }: { transcript: string | null; work: string; repos: string[]; allowed: string[]; before: Map<string, string> }): Audit => {
+export const audit = ({ transcript, work, home: runHome, repos, allowed, before }: { transcript: string | null; work: string; home?: string; repos: string[]; allowed: string[]; before: Map<string, string> }): Audit => {
   const changed = [...before].filter(([p, h]) => hash(join(work, p)) !== h).map(([p]) => p);
 
   if (!transcript || !existsSync(transcript)) {
@@ -59,7 +61,8 @@ export const audit = ({ transcript, work, repos, allowed, before }: { transcript
   }
 
   const home = homedir();
-  const homeSpellings = [home, '~', '$HOME', '${HOME}'];
+  // Commands run in the workspace, where `~` and `$HOME` are the run's own home inside its folder; only the owner's spelled-out home is theirs.
+  const homeSpellings = runHome ? [home] : [home, '~', '$HOME', '${HOME}'];
   const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + '/');
   const okHome = [work, ...allowed, ...CACHES.map((c) => join(home, c))];
   // Every path under the home folder that the input names, as an absolute path.
