@@ -22,7 +22,22 @@ export interface Audit {
 }
 
 // Package and tool caches under the home folder that a run may name without learning anything about the code.
-const CACHES = ['.cache', 'Library/Caches', '.npm', '.yarn', '.pnpm-store', '.bun', '.nvm', '.local/bin', '.cargo', '.rustup', '.dotnet', '.nuget', '.m2', '.gradle'];
+const CACHES = [
+  '.cache',
+  'Library/Caches',
+  '.npm',
+  '.yarn',
+  '.pnpm-store',
+  '.bun',
+  '.nvm',
+  '.local/bin',
+  '.cargo',
+  '.rustup',
+  '.dotnet',
+  '.nuget',
+  '.m2',
+  '.gradle',
+];
 
 // Commands and addresses that fetch the story of the change rather than the system's behaviour.
 const STORY = [
@@ -34,7 +49,9 @@ const STORY = [
 
 const hash = (p: string) => {
   if (!existsSync(p)) return null;
-  return createHash('sha1').update(lstatSync(p).isSymbolicLink() ? readlinkSync(p) : readFileSync(p)).digest('hex');
+  return createHash('sha1')
+    .update(lstatSync(p).isSymbolicLink() ? readlinkSync(p) : readFileSync(p))
+    .digest('hex');
 };
 
 /** A hash of every exported file, taken before the session, to find what it changed. */
@@ -51,7 +68,19 @@ export const snapshot = (root: string): Map<string, string> => {
   return out;
 };
 
-export const audit = ({ transcript, work, repos, allowed, before }: { transcript: string | null; work: string; repos: string[]; allowed: string[]; before: Map<string, string> }): Audit => {
+export const audit = ({
+  transcript,
+  work,
+  repos,
+  allowed,
+  before,
+}: {
+  transcript: string | null;
+  work: string;
+  repos: string[];
+  allowed: string[];
+  before: Map<string, string>;
+}): Audit => {
   const changed = [...before].filter(([p, h]) => hash(join(work, p)) !== h).map(([p]) => p);
 
   if (!transcript || !existsSync(transcript)) {
@@ -88,7 +117,9 @@ export const audit = ({ transcript, work, repos, allowed, before }: { transcript
     const why =
       (use.name.startsWith('mcp__') ? 'uses a connector' : null) ??
       (repos.find((r) => text.includes(r) && !inside(work, r)) ? 'names the source repo' : null) ??
-      homePaths(text).map((p) => (okHome.some((d) => inside(p, d)) ? null : `names ${p}`)).find(Boolean) ??
+      homePaths(text)
+        .map((p) => (okHome.some((d) => inside(p, d)) ? null : `names ${p}`))
+        .find(Boolean) ??
       STORY.find(([re]) => re.test(text))?.[1] ??
       (/(^|[\s"'=/])\.\.\//.test(text) ? 'a `..` path that can leave the run folder' : null);
     if (!why) continue;

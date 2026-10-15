@@ -61,7 +61,10 @@ export const parseDeclaration = (verifyMd: string): Declaration | null => {
     if (!Array.isArray(c?.hosts) || c.hosts.length === 0 || !c.hosts.every((h) => typeof h === 'string' && HOST.test(h)))
       problems.push(`credentials.${i}.hosts: a non-empty list of exact host names`);
     // nono routes one credential per host, so two credentials can't share one.
-    for (const h of Array.isArray(c?.hosts) ? c.hosts : []) seen.has(h) ? problems.push(`credentials.${i}.hosts: ${h} is already declared`) : seen.add(h);
+    for (const h of Array.isArray(c?.hosts) ? c.hosts : []) {
+      if (seen.has(h)) problems.push(`credentials.${i}.hosts: ${h} is already declared`);
+      else seen.add(h);
+    }
     if (c?.header !== undefined && !/^[A-Za-z0-9-]+$/.test(String(c.header))) problems.push(`credentials.${i}.header: a header name`);
     if (c?.format !== undefined && !String(c.format).includes('{}')) problems.push(`credentials.${i}.format: text with {} where the value goes`);
     for (const k of ['basic', 'known'] as const) if (c?.[k] !== undefined && typeof c[k] !== 'boolean') problems.push(`credentials.${i}.${k}: true or false`);
@@ -81,7 +84,14 @@ export const readCredentials = async (d: Declaration): Promise<Read[]> =>
             const value = stdout?.trim() ?? '';
             if (!err && value) return done({ ...c, outcome: 'read', value });
             const why = (stderr || err?.message || '').split('\n').find((l) => l.trim()) ?? '';
-            const reason = !err ? 'the secret is empty' : (err as { code?: string }).code === 'ENOENT' ? 'the Azure CLI (az) is not installed' : why.replace(/^ERROR:\s*/, '').trim().slice(0, 300);
+            const reason = !err
+              ? 'the secret is empty'
+              : (err as { code?: string }).code === 'ENOENT'
+                ? 'the Azure CLI (az) is not installed'
+                : why
+                    .replace(/^ERROR:\s*/, '')
+                    .trim()
+                    .slice(0, 300);
             done({ ...c, outcome: 'unavailable', reason: `${d.vault}/${c.secret}: ${reason || 'az exited without a value'}` });
           });
         }),
@@ -92,7 +102,9 @@ export const readCredentials = async (d: Declaration): Promise<Read[]> =>
 export const requireNono = (reads: Read[]): Read[] => {
   if (!reads.some((r) => r.outcome === 'read')) return reads;
   if (spawnSync('nono', ['--version'], { encoding: 'utf8' }).status === 0) return reads;
-  return reads.map((r): Read => (r.outcome === 'read' ? { ...r, outcome: 'unavailable', reason: 'nono is not installed (brew install nono), so nothing can inject it' } : r));
+  return reads.map((r): Read =>
+    r.outcome === 'read' ? { ...r, outcome: 'unavailable', reason: 'nono is not installed (brew install nono), so nothing can inject it' } : r,
+  );
 };
 
 const freePort = () =>
@@ -110,7 +122,19 @@ const freePort = () =>
  * proxy and trust variables, with each read credential's variable set to the run's token and each unavailable one removed.
  * `collect` turns nono's log into the run's credential log; `stop` ends the proxy, after which the token reaches nothing.
  */
-export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: { reads: Read[]; profileFile: string; nonoLog: string; log: string; baseEnv: NodeJS.ProcessEnv }) => {
+export const startProxy = async ({
+  reads,
+  profileFile,
+  nonoLog,
+  log,
+  baseEnv,
+}: {
+  reads: Read[];
+  profileFile: string;
+  nonoLog: string;
+  log: string;
+  baseEnv: NodeJS.ProcessEnv;
+}) => {
   const available = reads.filter((r) => r.outcome === 'read');
   const token = randomBytes(32).toString('hex');
   const port = await freePort();
@@ -123,7 +147,13 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
           r.id,
           r.credential.basic
             ? { upstream: `https://${r.host}`, credential_key: `env://${r.envKey}`, inject_mode: 'basic_auth' }
-            : { upstream: `https://${r.host}`, credential_key: `env://${r.envKey}`, inject_mode: 'header', inject_header: r.credential.header ?? 'Authorization', credential_format: r.credential.format ?? 'Bearer {}' },
+            : {
+                upstream: `https://${r.host}`,
+                credential_key: `env://${r.envKey}`,
+                inject_mode: 'header',
+                inject_header: r.credential.header ?? 'Authorization',
+                credential_format: r.credential.format ?? 'Bearer {}',
+              },
         ]),
       ),
     },
@@ -132,7 +162,11 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
   writeFileSync(log, '');
 
   // The real values live only in nono's own environment, never in the run's.
-  const nonoEnv: NodeJS.ProcessEnv = { ...baseEnv, NONO_PROXY_PASS: token, ...Object.fromEntries(available.map((c, i) => [`VERIFY_NONO_VALUE_${i}`, c.value])) };
+  const nonoEnv: NodeJS.ProcessEnv = {
+    ...baseEnv,
+    NONO_PROXY_PASS: token,
+    ...Object.fromEntries(available.map((c, i) => [`VERIFY_NONO_VALUE_${i}`, c.value])),
+  };
   const args = ['proxy', '-v', '--port', String(port), '--profile', profileFile, '--log-file', nonoLog, ...routes.flatMap((r) => ['--credential', r.id])];
   const nono = spawn('nono', args, { env: nonoEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   const killNono = () => nono.kill('SIGTERM');
@@ -146,7 +180,10 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
     const read = (chunk: Buffer) => {
       banner += chunk.toString();
       const path = banner.match(/trust bundle:\s*(\S+\.pem)/)?.[1];
-      if (path) (clearTimeout(timer), done(path));
+      if (path) {
+        clearTimeout(timer);
+        done(path);
+      }
     };
     nono.stdout.on('data', read);
     nono.stderr.on('data', read);
@@ -175,14 +212,23 @@ export const startProxy = async ({ reads, profileFile, nonoLog, log, baseEnv }: 
   let logged = 0;
   const collect = () => {
     if (!existsSync(nonoLog)) return;
-    const lines = readFileSync(nonoLog, 'utf8').split('\n').filter((l) => l.includes('l7 proxy response') && l.includes('mode=connect_intercept'));
+    const lines = readFileSync(nonoLog, 'utf8')
+      .split('\n')
+      .filter((l) => l.includes('l7 proxy response') && l.includes('mode=connect_intercept'));
     for (const line of lines.slice(logged)) {
       const field = (k: string) => line.match(new RegExp(`${k}="?([^"\\s]*)"?`))?.[1] ?? '';
       const host = field('target');
       const credential = routes.find((r) => r.host === host)?.credential.name;
       if (!credential) continue;
       const status = Number(field('status'));
-      const entry: LoggedRequest = { credential, host, method: field('method'), path: field('path').split('?')[0]!, status: status > 0 ? status : null, time: line.split(/\s/)[0]! };
+      const entry: LoggedRequest = {
+        credential,
+        host,
+        method: field('method'),
+        path: field('path').split('?')[0]!,
+        status: status > 0 ? status : null,
+        time: line.split(/\s/)[0]!,
+      };
       appendFileSync(log, JSON.stringify(entry) + '\n');
     }
     logged = lines.length;
@@ -235,7 +281,10 @@ export const findValues = ({ values, root, texts }: { values: Values; root: stri
 export const findValuesInProcesses = ({ values, rootPid }: { values: Values; rootPid: number }) => {
   // `ps -E` appends each process's environment to its command, for processes this user owns.
   const out = execFileSync('ps', ['-E', '-ww', '-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 1 << 28 });
-  const rows = out.split('\n').map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter((m) => m !== null);
+  const rows = out
+    .split('\n')
+    .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
+    .filter((m) => m !== null);
   const children = new Map<number, number[]>();
   for (const [, pid, ppid] of rows) children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), Number(pid)]);
   const tree = new Set<number>();

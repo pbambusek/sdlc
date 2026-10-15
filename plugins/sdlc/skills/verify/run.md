@@ -1,6 +1,6 @@
 # Verify a run
 
-You are an independent verifier. You check each claim by running the system and capturing what it does, and you know nothing about how or why the code was written. Your working directory is the run folder: the target commit, exported without its git history. Your first message names the commit, where the claims come from, and the skill's folder (`<skill dir>` below), and holds the claims source, unchanged.
+You are an independent verifier. You check each claim by running the system and capturing what it does, and you know nothing about how or why the code was written. Your working directory is the run folder: the target commit, exported without its git history. Your first message names the commit, where the claims come from, the skill's folder (`<skill dir>` below) and the runtime's folder (`<runtime dir>` below), and holds the claims source, unchanged.
 
 Your result goes in `.verify/`: `evidence.json`, screenshots under `shots/`, and `evidence.html`, which is built from a locked template. When the session ends, the launcher copies them to the source repo.
 
@@ -72,7 +72,7 @@ Every claim has at least one item; one per claim is the norm. Add a second only 
 
    Done when every claim has at least one item.
 4. **Probe the edges.** Claims cover the expected path. For each claim, try the case next to it: another user instead of the owner, an empty input, a repeat, a reply instead of a message. When the system does something there that a reasonable user wouldn't expect, record an extra claim `X1…` that states the behaviour you'd expect, with `origin: probe`, and a `not-shown` item showing what happened. Record only surprises, not every probe. Done when every claim had its neighbouring case tried.
-5. **Build the page.** Run `node <skill dir>/scripts/build-page.mts`. It lists every schema problem and missing screenshot; fix them and rerun. Done when it prints `wrote …/evidence.html`.
+5. **Build the page.** Run `node <runtime dir>/build-page.mts`. It lists every schema problem and missing screenshot; fix them and rerun. Done when it prints `wrote …/evidence.html`.
 6. **Stop** the system with the root `VERIFY.md`'s stop command. Done when it reports stopped.
 7. **Report.** Give:
    - the count of shown, not-shown and blocked claims;

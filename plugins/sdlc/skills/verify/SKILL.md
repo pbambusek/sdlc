@@ -24,11 +24,11 @@ The session that asks for verification may be the one that wrote the code. It ha
 3. **Launch** from inside the repo. Pass `--copy` for each gitignored file the root `VERIFY.md` says a run needs. A run takes minutes, so run it in the background:
 
    ```bash
-   node <skill dir>/scripts/launch.mts <spec path> [ref]
-   node <skill dir>/scripts/launch.mts --claims <file> [--source <label>] [ref]   # options: --copy <path>, --slug <name>
+   node <runtime dir>/launch.mts <spec path> [ref]
+   node <runtime dir>/launch.mts --claims <file> [--source <label>] [ref]   # options: --copy <path>, --slug <name>
    ```
 
-   `<skill dir>` is this skill's base directory. The launcher starts the verifier as a new process with [run.md](run.md) as its instructions, prints a line per step, and audits the session when it ends. `--interactive` opens a normal session instead, for the user to watch or debug a run in their own terminal.
+   `<skill dir>` is this skill's base directory, and `<runtime dir>` is `<skill dir>/../../runtime/verify`, the code the skill runs. The launcher starts the verifier as a new process with [run.md](run.md) as its instructions, prints a line per step, and audits the session when it ends. `--interactive` opens a normal session instead, for the user to watch or debug a run in their own terminal.
 4. **Report** what the launcher printed last: the page path, the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason. When it says the audit failed, say the page is invalid.
 
 When the root `VERIFY.md` declares credentials, the launcher reads them with the Azure CLI's cached login and never prompts. It starts nono's proxy (`brew install nono`) for the run, and a run without nono treats every credential as unavailable. Its console log says which credentials it read and which it couldn't, and the page lists every request that used one.
