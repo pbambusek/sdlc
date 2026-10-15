@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Verification</title>
+<!--
+  LOCKED TEMPLATE of the verify skill. A run never edits this file or its copy:
+  it writes evidence.json, and the runtime's build-page.mts fills the block below and inlines every screenshot.
+-->
+<style>
+  /* A scoreboard (counts and one square per claim) anchors the top, then the claims that need attention, then the
+     spec's groups with one row per claim. A bar fixed to the bottom opens the claim list and steps through problems. */
+  :root {
+    --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef0f4; --fg: #141821; --muted: #596173; --faint: #8b92a2;
+    --line: #e0e3ea; --accent: #3446c9; --code: #f0f2f5; --mark: #fde68a;
+    --ok: #17784a; --ok-soft: #e1f3e8; --ok-ink: #ffffff;
+    --bad: #c0352e; --bad-soft: #fbe6e4; --bad-ink: #ffffff;
+    --warn: #9a6200; --warn-soft: #fbefd6; --warn-ink: #ffffff;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1015; --surface: #161920; --surface-2: #1e222b; --fg: #e7e9ee; --muted: #a2a9b7; --faint: #6e7585;
+      --line: #292e39; --accent: #9aa8ff; --code: #1b1f27; --mark: #6b5410;
+      --ok: #45c07d; --ok-soft: #11291c; --ok-ink: #06140c;
+      --bad: #ff786e; --bad-soft: #351412; --bad-ink: #1c0806;
+      --warn: #f1b440; --warn-soft: #30240b; --warn-ink: #1b1303;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1015; --surface: #161920; --surface-2: #1e222b; --fg: #e7e9ee; --muted: #a2a9b7; --faint: #6e7585;
+    --line: #292e39; --accent: #9aa8ff; --code: #1b1f27; --mark: #6b5410;
+    --ok: #45c07d; --ok-soft: #11291c; --ok-ink: #06140c;
+    --bad: #ff786e; --bad-soft: #351412; --bad-ink: #1c0806;
+    --warn: #f1b440; --warn-soft: #30240b; --warn-ink: #1b1303;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { scroll-padding-top: 20px; scroll-padding-bottom: 96px; }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--sans); margin: 0; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Layout: one centred column; navigation lives in a bar fixed to the bottom of the window. */
+  .shell { max-width: 1080px; margin: 0 auto; padding: 28px 16px 120px; }
+  @media (min-width: 720px) { .shell { padding-inline: 24px; } }
+  main { min-width: 0; }
+
+  .dock { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 4; width: min(1032px, calc(100% - 24px)); }
+  .dockbar { display: flex; align-items: center; gap: 6px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgb(10 14 22 / .16), 0 1px 3px rgb(10 14 22 / .08); }
+  :where(.dockbar) :where(button, a) { all: unset; cursor: pointer; box-sizing: border-box; border-radius: 9px; font-size: 13px; }
+  .dockbar button:focus-visible, .dockbar a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .where { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+  .where:hover { background: var(--surface-2); }
+  .where .menu { color: var(--muted); font-size: 15px; }
+  .where .caret { color: var(--faint); font-size: 11px; padding-left: 2px; }
+  .where[aria-expanded="true"] { background: var(--surface-2); }
+  .stepper { margin-left: auto; }
+  .panel { padding-top: 0; }
+  .panel-head { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 -8px 4px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .panel-title { font-weight: 700; font-size: 14px; }
+  .panel .filter button { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .panel .filter button:focus-visible { outline: 2px solid var(--accent); }
+  .where .counts { display: flex; gap: 4px; }
+  .sep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--line); }
+  .stepper { display: flex; align-items: center; gap: 2px; }
+  .stepper button { padding: 6px 10px; font-weight: 650; }
+  .stepper button:hover:not([disabled]) { background: var(--surface-2); }
+  .stepper button[disabled] { color: var(--faint); cursor: default; }
+  .stepper .pos { font-size: 13px; color: var(--muted); padding: 0 4px; white-space: nowrap; }
+  .stepper .pos b { color: var(--fg); }
+  .filter { display: flex; gap: 2px; padding: 2px; background: var(--surface-2); border-radius: 10px; }
+  .filter button { padding: 4px 10px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .filter button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(10 14 22 / .12); }
+  .totop { padding: 6px 10px; color: var(--muted); white-space: nowrap; }
+  .totop:hover { background: var(--surface-2); color: var(--fg); }
+
+  @media (max-width: 520px) {
+    .where .counts .pill:first-child, .sep { display: none; }
+    .stepper .pos .of { display: none; }
+  }
+
+  .panel { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); max-height: min(62vh, 560px); overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgb(10 14 22 / .2); padding: 8px; }
+  .panel-group { padding: 6px 0; }
+  .panel-group + .panel-group { border-top: 1px solid var(--line); }
+  .panel-group h4 { display: flex; justify-content: space-between; margin: 4px 8px 4px; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+  .panel-group h4 .num { letter-spacing: 0; font-weight: 500; }
+  .panel .index-row { padding: 5px 8px; }
+  .panel .index-row .t { white-space: normal; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+  @media (min-width: 720px) { .panel-cols { columns: 2; column-gap: 12px; } .panel-group { break-inside: avoid; } }
+  .keys { font-size: 12px; color: var(--faint); }
+  .keys kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); background: var(--surface); }
+
+  /* Status: colour plus a glyph, everywhere. */
+  .glyph { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 800; flex: none; line-height: 1; }
+  .glyph.shown { background: var(--ok-soft); color: var(--ok); }
+  .glyph.not-shown { background: var(--bad); color: var(--bad-ink); }
+  .glyph.blocked { background: var(--warn); color: var(--warn-ink); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; padding: 2px 10px 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill.shown { background: var(--ok-soft); color: var(--ok); }
+  .pill.not-shown { background: var(--bad-soft); color: var(--bad); }
+  .pill.blocked { background: var(--warn-soft); color: var(--warn); }
+  .chip { font: 12px/1.6 var(--mono); color: var(--muted); background: var(--surface-2); border-radius: 6px; padding: 0 7px; white-space: nowrap; }
+
+  /* The claim list's lines. */
+  .index-row { display: grid; grid-template-columns: 16px 34px minmax(0, 1fr); gap: 6px; align-items: center; padding: 3px 8px; border-radius: 6px; font-size: 13px; color: var(--muted); text-decoration: none; }
+  .index-row:hover { background: var(--surface-2); color: var(--fg); }
+  .index-row.current { background: var(--surface); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
+  .index-row .g { font-size: 11px; font-weight: 800; text-align: center; }
+  .index-row .g.shown { color: var(--ok); }
+  .index-row .g.not-shown { color: var(--bad); }
+  .index-row .g.blocked { color: var(--warn); }
+  .index-row .id { font: 12px var(--mono); color: var(--faint); }
+  .index-row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .index-row.not-shown .t, .index-row.blocked .t { color: var(--fg); font-weight: 550; }
+
+
+  button.mini-btn { all: unset; cursor: zoom-in; display: block; border-radius: 6px; }
+  button.mini-btn:hover .mini { border-color: var(--faint); }
+  button.mini-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Header and scoreboard. */
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 20px 0 8px; }
+  h1 { font-size: clamp(24px, 3.2vw, 32px); line-height: 1.2; letter-spacing: -0.015em; margin: 0; text-wrap: balance; font-weight: 720; }
+  h1 .key { font: 600 .7em var(--mono); background: var(--surface-2); padding: 2px 8px; border-radius: 6px; vertical-align: .12em; margin-right: 8px; letter-spacing: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+  .meta code { font: 12.5px var(--mono); color: var(--fg); }
+
+  .board { margin: 24px 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px 22px 18px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .stat { display: grid; gap: 2px; padding: 4px 0 4px 14px; border-left: 3px solid var(--line); text-decoration: none; color: inherit; }
+  .stat.shown { border-color: var(--ok); }
+  .stat.not-shown { border-color: var(--bad); }
+  .stat.blocked { border-color: var(--warn); }
+  .stat b { font-size: clamp(32px, 6vw, 48px); line-height: 1; font-weight: 750; letter-spacing: -0.02em; }
+  .stat.shown b { color: var(--ok); }
+  .stat.not-shown b { color: var(--bad); }
+  .stat.blocked b { color: var(--warn); }
+  .stat span { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .stat .of { font-size: 13px; color: var(--faint); font-weight: 500; }
+  @media (max-width: 560px) { .stat .of { display: none; } }
+
+  .strip { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .strip-group { display: grid; gap: 6px; min-width: 0; }
+  .strip-group > a { font-size: 12px; color: var(--muted); text-decoration: none; font-weight: 600; white-space: nowrap; }
+  .strip-group > a .num { color: var(--faint); font-weight: 500; }
+  .cells { display: flex; flex-wrap: wrap; gap: 3px; }
+  .cell { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; font-weight: 800; text-decoration: none; }
+  .cell.shown { background: var(--ok); opacity: .8; }
+  .cell.shown:hover { opacity: 1; }
+  .cell.current { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--fg); opacity: 1; }
+  .cell.not-shown { background: var(--bad); color: var(--bad-ink); }
+  .cell.blocked { background: var(--warn); color: var(--warn-ink); }
+
+  .trust { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; font-size: 13px; color: var(--muted); }
+  .trust details { flex-basis: 100%; }
+  .trust summary { cursor: pointer; color: var(--accent); width: fit-content; }
+  .trust ul { margin: 8px 0 0; padding-left: 18px; }
+
+  /* Attention cards. */
+  .section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin: 40px 0 14px; }
+  .section-head h2 { font-size: 20px; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .section-head .num { color: var(--faint); font-size: 15px; }
+  .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+  .card { display: grid; gap: 8px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; text-decoration: none; color: inherit; }
+  .card:hover { border-color: var(--faint); }
+  .card.not-shown { border-top: 3px solid var(--bad); }
+  .card.blocked { border-top: 3px solid var(--warn); }
+  .card .top { display: flex; align-items: center; gap: 8px; }
+  .card .top .id { font: 600 13px var(--mono); }
+  .kind + .kind { margin-top: 22px; }
+  .kind-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 10px; }
+  .kind-head .pill { font-size: 13px; padding: 3px 12px 3px 10px; }
+  .kind-note { font-size: 13px; color: var(--muted); }
+  .card.selected { border-color: var(--fg); }
+  .card .top .grp { margin-left: auto; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .claim { font-weight: 600; font-size: 14.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .why { font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+
+  /* Ledger. */
+  .ledger-tools { display: flex; gap: 14px; margin-left: auto; }
+  button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
+  .group { margin-top: 32px; }
+  .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
+  .group-head h3 { font-size: 17px; margin: 0; letter-spacing: -0.005em; }
+  .group-head .tally { font-size: 13px; color: var(--muted); }
+  .bar { display: flex; height: 6px; width: 120px; border-radius: 99px; overflow: hidden; background: var(--surface-2); }
+  .bar i { display: block; height: 100%; }
+  .bar .shown { background: var(--ok); }
+  .bar .not-shown { background: var(--bad); }
+  .bar .blocked { background: var(--warn); }
+
+  .list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: clip; }
+  details.row + details.row { border-top: 1px solid var(--line); }
+  details.row > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 16px; }
+  details.row > summary::-webkit-details-marker { display: none; }
+  details.row > summary:hover { background: var(--surface-2); }
+  details.row[open] > summary { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; background: var(--surface); border-bottom: 1px solid var(--line); }
+  details.row.not-shown > summary { background: var(--bad-soft); }
+  details.row.blocked > summary { background: var(--warn-soft); }
+  details.row.selected > summary, details.row.selected > .row-body { box-shadow: inset 3px 0 0 var(--fg); }
+  .row-main { display: grid; gap: 3px; min-width: 0; }
+  .row-main .text { line-height: 1.45; }
+  .row-main .text .id { font: 600 12.5px var(--mono); color: var(--faint); margin-right: 8px; }
+  .row-main .why { font-size: 13.5px; font-weight: 550; }
+  details.row.not-shown .why { color: var(--bad); }
+  details.row.blocked .why { color: var(--warn); }
+  details.row[open] .why { display: none; }
+  .row-side { display: flex; align-items: center; gap: 8px; }
+  .mini { width: 64px; height: 40px; border-radius: 5px; border: 1px solid var(--line); object-fit: cover; object-position: top left; display: block; background: var(--surface-2); }
+  .chev { color: var(--faint); font-size: 12px; transition: transform .15s; }
+  details.row[open] .chev { transform: rotate(90deg); }
+  details.row[open] .row-side .mini-btn { visibility: hidden; }
+  @media (max-width: 560px) { .row-side .mini-btn { display: none; } }
+
+  .row-body { padding: 4px 16px 18px 50px; display: grid; gap: 18px; }
+  @media (max-width: 560px) { .row-body { padding-left: 16px; } }
+  .origin { font-size: 13px; color: var(--warn); }
+  .item { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 720px) { .item.has-shot { grid-template-columns: minmax(0, 1fr) 300px; } }
+  .item + .item { border-top: 1px dashed var(--line); padding-top: 18px; }
+  .item-text { display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .label { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 8px; }
+  .label .pill { text-transform: none; letter-spacing: 0; }
+  .observed { font-size: 15px; line-height: 1.55; }
+  .reason { font-size: 14px; padding: 10px 12px; border-radius: 8px; }
+  .reason.not-shown { background: var(--bad-soft); color: var(--bad); }
+  .reason.blocked { background: var(--warn-soft); color: var(--warn); }
+  pre { font: 12.5px/1.55 var(--mono); background: var(--code); border-radius: 8px; padding: 10px 12px; margin: 0; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  pre.payload { max-height: 360px; overflow-y: auto; }
+  mark { background: var(--mark); color: inherit; border-radius: 2px; }
+  details.steps > summary { cursor: pointer; font-size: 13px; color: var(--muted); width: fit-content; }
+  details.steps > summary:hover { color: var(--fg); }
+  details.steps pre { margin-top: 8px; }
+  button.shot { all: unset; cursor: zoom-in; display: grid; gap: 6px; align-content: start; }
+  button.shot img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border-radius: 8px; border: 1px solid var(--line); display: block; }
+  button.shot span { font-size: 12px; color: var(--muted); }
+  button.shot:hover img { border-color: var(--faint); }
+  button.shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+
+  details.run { margin-top: 48px; border-top: 1px solid var(--line); padding-top: 16px; }
+  details.run > summary { cursor: pointer; font-size: 17px; font-weight: 700; }
+  details.run ul { padding-left: 18px; color: var(--muted); }
+  details.run h4 { margin: 18px 0 6px; font-size: 14px; }
+
+  dialog { border: 0; padding: 0; width: min(1480px, 96vw); max-height: 94vh; background: var(--surface); color: var(--fg); border-radius: 12px; }
+  dialog::backdrop { background: rgb(8 10 14 / .78); }
+  .viewer-bar { position: sticky; top: 0; display: flex; gap: 12px; align-items: center; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 14px; }
+  .viewer-bar span { flex: 1; min-width: 0; }
+  dialog img { display: block; width: 100%; height: auto; }
+  @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+  html.locked { overflow: hidden; }
+  @media print { .dock, .keys, .ledger-tools { display: none; } details.row[open] > summary { position: static; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <main id="page"></main>
+</div>
+<dialog id="viewer" aria-label="Screenshot">
+  <div class="viewer-bar"><span id="viewer-caption"></span><button class="link" id="viewer-close" type="button">Close</button></div>
+  <img id="viewer-img" alt="">
+</dialog>
+<p id="nojs">This page renders from its embedded evidence block and needs JavaScript.</p>
+<script type="application/json" id="evidence">null</script>
+<script>
+  const ev = JSON.parse(document.getElementById('evidence').textContent);
+  document.getElementById('nojs').remove();
+  const LABEL = { shown: 'Shown', 'not-shown': 'Not shown', blocked: 'Blocked' };
+  const ICON = { shown: '✓', 'not-shown': '✕', blocked: '!' };
+  const ORDER = ['shown', 'not-shown', 'blocked'];
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) if (v != null && v !== false) n.setAttribute(k, v === true ? '' : v);
+    for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) n.append(kid);
+    return n;
+  };
+  const glyph = (s) => el('span', { class: `glyph ${s}`, 'aria-label': LABEL[s], title: LABEL[s] }, ICON[s]);
+  const pill = (s) => el('span', { class: `pill ${s}` }, ICON[s], ' ', LABEL[s]);
+  const tally = (claims) => Object.fromEntries(ORDER.map((s) => [s, claims.filter((c) => c.status === s).length]));
+  const reasonOf = (c) => c.items.find((i) => i.status === c.status)?.reason;
+  const firstShot = (c) => c.items.find((i) => i.type === 'screenshot');
+
+  const highlighted = (text, marks = []) => {
+    const pre = el('pre', { class: 'payload' });
+    const terms = marks.filter(Boolean);
+    if (!terms.length) return (pre.textContent = text), pre;
+    const rx = new RegExp(`(${terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g');
+    for (const part of text.split(rx)) pre.append(terms.includes(part) ? el('mark', {}, part) : part);
+    return pre;
+  };
+
+  // Groups from the spec, in its order; claims no group names, then the verifier's probes, follow.
+  const groups = (() => {
+    const byId = new Map(ev.claims.map((c) => [c.id, c]));
+    const named = new Set((ev.groups ?? []).flatMap((g) => g.claims));
+    const rest = ev.claims.filter((c) => !named.has(c.id) && c.origin !== 'probe');
+    const probes = ev.claims.filter((c) => !named.has(c.id) && c.origin === 'probe');
+    return [
+      ...(ev.groups ?? []).map((g) => ({ title: g.title, claims: g.claims.map((id) => byId.get(id)) })),
+      ...(rest.length ? [{ title: ev.groups?.length ? 'Other claims' : 'Claims', claims: rest }] : []),
+      ...(probes.length ? [{ title: 'Found by the verifier', claims: probes }] : []),
+    ].map((g, n) => ({ ...g, id: `group-${n + 1}` }));
+  })();
+  const groupOf = new Map(groups.flatMap((g) => g.claims.map((c) => [c.id, g])));
+  const total = tally(ev.claims);
+  const attention = ev.claims.filter((c) => c.status !== 'shown' || c.origin !== 'quoted');
+
+  // Header: title, meta, scoreboard, trust.
+  const header = () => {
+    const m = ev.title.match(/^([A-Z][A-Z0-9]+-\d+):\s*(.*?)(?:\s*\(commit [0-9a-f]+\))?$/);
+    const shownPct = (s) => `${Math.round((total[s] / ev.claims.length) * 100)}%`;
+    return [
+      el('div', { class: 'eyebrow' }, 'Verification report'),
+      el('h1', { id: 'top' }, m ? [el('span', { class: 'key' }, m[1]), m[2]] : ev.title),
+      el('div', { class: 'meta' },
+        el('span', {}, 'Target ', el('code', {}, ev.target.ref)),
+        el('span', {}, 'Commit ', el('code', {}, ev.target.commit.slice(0, 12))),
+        el('span', {}, 'Ran ', el('span', { class: 'num' }, ev.ranAt.replace('T', ' ').replace('Z', ' UTC'))),
+        el('span', {}, 'Claims from ', /^https?:/.test(ev.source) ? el('a', { href: ev.source }, ev.source.replace(/^https?:\/\//, '')) : el('code', {}, ev.source))),
+      el('section', { class: 'board', 'aria-label': 'Result' },
+        el('div', { class: 'stats' }, ORDER.map((s) =>
+          el('a', { class: `stat ${s}`, href: s === 'shown' ? '#claims' : '#attention' },
+            el('b', { class: 'num' }, String(total[s])),
+            el('span', {}, ICON[s], ' ', LABEL[s], ' ', el('span', { class: 'of num' }, `· ${shownPct(s)}`))))),
+        el('div', { class: 'strip', 'aria-label': 'Every claim, by group' }, groups.map((g) => {
+          const t = tally(g.claims);
+          return el('div', { class: 'strip-group' },
+            el('a', { href: `#${g.id}` }, g.title, ' ', el('span', { class: 'num' }, `${t.shown}/${g.claims.length}`)),
+            el('div', { class: 'cells' }, g.claims.map((c) =>
+              el('a', { class: `cell ${c.status}`, href: `#${c.id}`, 'data-claim': c.id, title: `${c.id} · ${LABEL[c.status]} · ${c.text}`, 'aria-label': `${c.id} ${LABEL[c.status]}` },
+                c.status === 'shown' ? '' : ICON[c.status]))));
+        })),
+        el('div', { class: 'trust' },
+          ev.trust.state === 'clean' ? el('span', { class: 'pill shown' }, '✓ Audit clean') : ev.trust.state === 'pending' ? el('span', { class: 'pill blocked' }, '… Audit pending') : el('span', { class: 'pill not-shown' }, '✕ Audit findings'),
+          el('span', {}, ev.trust.state === 'clean' ? 'The verifier never looked at how the code was written.' : ev.trust.lines[0]),
+          el('details', {}, el('summary', {}, 'Audit and credential details'), el('ul', {}, ev.trust.lines.map((l) => el('li', {}, l)))))),
+    ];
+  };
+
+  const KINDS = [
+    { key: 'not-shown', title: 'Not shown', note: 'Checked, and the claim did not hold.', test: (c) => c.status === 'not-shown' },
+    { key: 'blocked', title: 'Blocked', note: 'Could not be checked; each says what would unblock it.', test: (c) => c.status === 'blocked' },
+    { key: 'wording', title: 'Check the wording', note: 'Read from the source’s prose or found by the verifier, not quoted from a list.', test: (c) => c.status === 'shown' && c.origin !== 'quoted' },
+  ];
+  const card = (c) => el('a', { class: `card ${c.status}`, href: `#${c.id}`, 'data-claim': c.id },
+    el('div', { class: 'top' }, el('span', { class: 'id' }, c.id), el('span', { class: 'grp' }, groupOf.get(c.id)?.title)),
+    el('div', { class: 'claim' }, c.text),
+    el('div', { class: 'why' }, c.status !== 'shown' ? reasonOf(c) : c.origin === 'probe' ? 'Found by the verifier, next to a claim.' : 'Check it says what the source meant.'));
+  const attentionSection = () => attention.length === 0 ? null : [
+    el('div', { class: 'section-head', id: 'attention' }, el('h2', {}, 'Needs your attention')),
+    KINDS.map((k) => {
+      const list = ev.claims.filter(k.test);
+      return list.length === 0 ? null : el('section', { class: `kind ${k.key}` },
+        el('div', { class: 'kind-head' }, el('span', { class: `pill ${k.key === 'wording' ? 'blocked' : k.key}` }, k.key === 'wording' ? '?' : ICON[k.key], ' ', k.title, ' ', el('span', { class: 'num' }, String(list.length))), el('span', { class: 'kind-note' }, k.note)),
+        el('div', { class: 'cards' }, list.map(card)));
+    }),
+  ];
+
+  const item = (c, i, many) => {
+    const src = ev.images?.[i.payload];
+    const text = el('div', { class: 'item-text' },
+      el('div', { class: 'label' }, many ? pill(i.status) : null, i.type === 'screenshot' ? 'What the screenshot shows' : `Observed · ${i.type}`),
+      el('div', { class: 'observed' }, i.shows),
+      i.reason ? el('div', { class: `reason ${i.status}` }, i.reason) : null,
+      i.type !== 'screenshot' ? highlighted(i.payload, i.highlight) : null,
+      el('details', { class: 'steps' }, el('summary', {}, 'How it was produced'), el('pre', {}, i.how)));
+    if (i.type !== 'screenshot') return el('div', { class: 'item' }, text);
+    const shot = el('button', { class: 'shot', type: 'button', 'aria-label': `Open screenshot: ${i.shows}` },
+      el('img', { src, alt: i.shows, loading: 'lazy' }), el('span', {}, 'Open full size'));
+    shot.onclick = () => openShot(src, `${c.id} · ${i.shows}`);
+    return el('div', { class: 'item has-shot' }, text, shot);
+  };
+
+  // The row's thumbnail opens the screenshot itself, without toggling the row.
+  const miniShot = (c, shot) => {
+    const b = el('button', { class: 'mini-btn', type: 'button', 'aria-label': `Open screenshot for ${c.id}` },
+      el('img', { class: 'mini', src: ev.images[shot.payload], alt: '', loading: 'lazy' }));
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openShot(ev.images[shot.payload], `${c.id} · ${shot.shows}`); });
+    return b;
+  };
+
+  const row = (c) => {
+    const shot = firstShot(c);
+    return el('details', { class: `row ${c.status}`, id: c.id },
+      el('summary', {},
+        glyph(c.status),
+        el('div', { class: 'row-main' },
+          el('div', { class: 'text' }, el('span', { class: 'id' }, c.id), c.text),
+          c.status !== 'shown' ? el('div', { class: 'why' }, reasonOf(c)) : null),
+        el('div', { class: 'row-side' },
+          shot ? miniShot(c, shot) : el('span', { class: 'chip' }, c.items[0].type),
+          el('span', { class: 'chev', 'aria-hidden': 'true' }, '▶'))),
+      el('div', { class: 'row-body' },
+        c.origin !== 'quoted' ? el('div', { class: 'origin' }, c.origin === 'probe' ? 'Found by the verifier, next to a claim.' : 'Read from the source’s prose: check the wording says what the source meant.') : null,
+        c.items.map((i) => item(c, i, c.items.length > 1))));
+  };
+
+  const ledger = () => [
+    el('div', { class: 'section-head', id: 'claims' }, el('h2', {}, 'Claims'), el('span', { class: 'num' }, String(ev.claims.length)),
+      el('div', { class: 'ledger-tools' },
+        el('button', { class: 'link', type: 'button', id: 'expand' }, 'Expand all'),
+        el('button', { class: 'link', type: 'button', id: 'collapse' }, 'Collapse all'))),
+    el('div', { class: 'keys' }, 'Keys: ', el('kbd', {}, 'n'), ' ', el('kbd', {}, 'p'), ' next or previous problem · ', el('kbd', {}, 'j'), ' ', el('kbd', {}, 'k'), ' next or previous claim · ', el('kbd', {}, 'o'), ' open or close · ', el('kbd', {}, '/'), ' all claims'),
+    groups.map((g) => {
+      const t = tally(g.claims);
+      return el('section', { class: 'group', id: g.id },
+        el('div', { class: 'group-head' },
+          el('h3', {}, g.title),
+          el('span', { class: 'bar', 'aria-hidden': 'true' }, ORDER.map((s) => t[s] ? el('i', { class: s, style: `width:${(t[s] / g.claims.length) * 100}%` }) : null)),
+          el('span', { class: 'tally num' }, `${t.shown} of ${g.claims.length} shown`, t['not-shown'] ? ` · ${t['not-shown']} not shown` : '', t.blocked ? ` · ${t.blocked} blocked` : '')),
+        el('div', { class: 'list' }, g.claims.map(row)));
+    }),
+  ];
+
+  const run = () => el('details', { class: 'run', id: 'run' },
+    el('summary', {}, 'How it was run'),
+    el('ul', {}, ev.environment.map((l) => el('li', {}, l))),
+    ev.credentialRequests ? [
+      el('h4', {}, 'Requests that carried a credential'),
+      el('pre', {}, ev.credentialRequests.length ? ev.credentialRequests.map((r) => [r.credential, r.host, r.method, r.path, r.status ?? 'no response', r.time].join('  ')).join('\n') : 'None.')] : null);
+
+  const indexRow = (c) => el('a', { class: `index-row ${c.status}`, href: `#${c.id}`, 'data-claim': c.id, title: c.text },
+    el('span', { class: `g ${c.status}`, 'aria-label': LABEL[c.status] }, ICON[c.status]),
+    el('span', { class: 'id' }, c.id),
+    el('span', { class: 't' }, c.text));
+
+  // The bar: the claim list (with its filter), stepping through problems, and the way back to the top.
+  const FILTERS = [['all', 'All', String(ev.claims.length)], ['not-shown', 'Not shown', `✕ ${total['not-shown']}`], ['blocked', 'Blocked', `! ${total.blocked}`]];
+  const dock = () => el('div', { class: 'dock', id: 'dock' },
+    el('div', { class: 'panel', id: 'panel', hidden: true, role: 'dialog', 'aria-label': 'All claims' },
+      el('div', { class: 'panel-head' },
+        el('span', { class: 'panel-title' }, 'Claims'),
+        el('div', { class: 'filter', role: 'group', 'aria-label': 'Show' }, FILTERS.map(([k, label, n]) =>
+          el('button', { type: 'button', 'data-filter': k, 'aria-pressed': String(k === 'all') }, label, ' ', el('span', { class: 'num' }, n))))),
+      el('div', { class: 'panel-cols' }, groups.map((g) => el('div', { class: 'panel-group', 'data-group': g.id },
+        el('h4', {}, el('span', {}, g.title), el('span', { class: 'num' }, `${tally(g.claims).shown}/${g.claims.length}`)),
+        g.claims.map(indexRow))))),
+    el('div', { class: 'dockbar' },
+      el('button', { class: 'where', id: 'where', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'panel' },
+        el('span', { class: 'menu', 'aria-hidden': 'true' }, '☰'), el('b', {}, 'Claims'),
+        el('span', { class: 'counts' }, ORDER.map((s) => el('span', { class: `pill ${s}` }, ICON[s], ' ', el('span', { class: 'num' }, String(total[s]))))),
+        el('span', { class: 'caret', 'aria-hidden': 'true' }, '▴')),
+      el('span', { class: 'sep' }),
+      el('div', { class: 'stepper' },
+        el('button', { type: 'button', id: 'prev', 'aria-label': 'Previous problem' }, '‹'),
+        el('span', { class: 'pos', id: 'pos' }),
+        el('button', { type: 'button', id: 'next', 'aria-label': 'Next problem' }, '›')),
+      el('span', { class: 'sep' }),
+      el('a', { class: 'totop', href: '#top' }, '↑ Top')));
+
+  document.title = `Verification: ${ev.title.replace(/\s*\(commit [0-9a-f]+\)$/, '')}`;
+  document.getElementById('page').replaceChildren(...[header(), attentionSection(), ledger(), run()].flat(Infinity).filter(Boolean));
+  document.body.append(dock());
+
+  const viewer = document.getElementById('viewer');
+  function openShot(src, caption) {
+    document.getElementById('viewer-img').src = src;
+    document.getElementById('viewer-caption').textContent = caption;
+    document.documentElement.classList.add('locked');
+    viewer.showModal();
+  }
+  viewer.addEventListener('close', () => document.documentElement.classList.remove('locked'));
+  document.getElementById('viewer-close').onclick = () => viewer.close();
+  viewer.addEventListener('click', (e) => e.target === viewer && viewer.close());
+
+  const rows = () => [...document.querySelectorAll('details.row')];
+  document.getElementById('expand').onclick = () => rows().forEach((d) => !d.hidden && (d.open = true));
+  document.getElementById('collapse').onclick = () => rows().forEach((d) => (d.open = false));
+
+  // Problems in page order: what the stepper and n/p move through, within the filter.
+  let filter = 'all';
+  const passes = (c) => filter === 'all' || c.status === filter;
+  const problems = () => groups.flatMap((g) => g.claims).filter((c) => c.status !== 'shown' && passes(c));
+  const visibleClaims = () => groups.flatMap((g) => g.claims).filter(passes);
+
+  // The selected claim is the last one picked (stepper, keys, list, strip, cards, a row's header), kept in the URL (#C12)
+  // and marked on the page. The stepper, keys and attention cards also open it; the list and the strip only take you there.
+  let selected = null;
+  const openedByStepper = new Set();
+  const setHash = (id) => {
+    const want = id ? `#${id}` : '';
+    if (location.hash !== want) try { history.replaceState(null, '', `${location.pathname}${location.search}${want}`); } catch {}
+  };
+  const setCurrent = (id) => {
+    if (id === selected) return;
+    selected = id;
+    setHash(id);
+    paint();
+  };
+  const scrollToClaim = (t) => t.scrollIntoView({ block: 'start' });
+  const select = (id, { scroll = true, open = false, stepped = false } = {}) => {
+    const t = id && document.getElementById(id);
+    if (!t) return false;
+    if (!groupOf.has(id)) { if (t.tagName === 'DETAILS') t.open = true; if (scroll) scrollToClaim(t); return true; }
+    // Stepping on collapses the claim the stepper itself opened, so the next one lands in the same place.
+    if (stepped && selected && selected !== id && openedByStepper.has(selected)) {
+      document.getElementById(selected).open = false;
+      openedByStepper.delete(selected);
+    }
+    if (open && !t.open) { t.open = true; if (stepped) openedByStepper.add(id); }
+    if (t.hidden) setFilter('all');
+    selected = null;
+    setCurrent(id);
+    if (scroll) scrollToClaim(t);
+    return true;
+  };
+
+  const paint = () => {
+    document.querySelectorAll('[data-claim]').forEach((a) => a.classList.toggle('current', a.dataset.claim === selected));
+    rows().forEach((d) => d.classList.toggle('selected', d.id === selected));
+    document.querySelectorAll('.card').forEach((a) => a.classList.toggle('selected', a.dataset.claim === selected));
+    const list = problems();
+    const at = list.findIndex((x) => x.id === selected);
+    const pos = document.getElementById('pos');
+    if (list.length === 0) pos.replaceChildren('No problems');
+    else if (at === -1) pos.replaceChildren(el('span', { class: 'of' }, `${list.length} problems`));
+    else pos.replaceChildren('Problem ', el('b', { class: 'num' }, String(at + 1)), el('span', { class: 'of' }, ` of ${list.length}`));
+    document.getElementById('prev').disabled = list.length === 0;
+    document.getElementById('next').disabled = list.length === 0;
+  };
+
+  // Next or previous problem from the selection; from a shown claim, the nearest one in page order. Past either end
+  // it wraps around to the other.
+  const step = (dir, list = problems()) => {
+    if (!list.length) return;
+    const order = visibleClaims().map((c) => c.id);
+    const here = selected ? order.indexOf(selected) : -1;
+    const at = list.findIndex((x) => x.id === selected);
+    let target;
+    if (at !== -1) target = list[(at + dir + list.length) % list.length];
+    else if (dir > 0) target = list.find((x) => order.indexOf(x.id) > here) ?? list[0];
+    else target = [...list].reverse().find((x) => order.indexOf(x.id) < here) ?? list.at(-1);
+    select(target.id, { open: true, stepped: true });
+  };
+  document.getElementById('prev').onclick = () => step(-1);
+  document.getElementById('next').onclick = () => step(1);
+
+
+  // The filter narrows the claim list and what the stepper and keys move through; the page stays complete.
+  function setFilter(k) {
+    filter = k;
+    document.querySelectorAll('.filter button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.filter === k)));
+    document.querySelectorAll('.panel .index-row').forEach((a) => (a.hidden = !passes(ev.claims.find((x) => x.id === a.dataset.claim))));
+    document.querySelectorAll('.panel-group').forEach((g) => (g.hidden = ![...g.querySelectorAll('.index-row')].some((a) => !a.hidden)));
+    paint();
+  }
+  document.querySelectorAll('.filter button').forEach((b) => (b.onclick = () => setFilter(b.dataset.filter)));
+
+  // The claim list opens above the bar.
+  const panel = document.getElementById('panel');
+  const where = document.getElementById('where');
+  const togglePanel = (show = panel.hidden) => {
+    panel.hidden = !show;
+    where.setAttribute('aria-expanded', String(show));
+    const line = show && panel.querySelector('.index-row.current');
+    if (line) panel.scrollTop = line.offsetTop - panel.clientHeight / 2;
+  };
+  where.onclick = () => togglePanel();
+  document.addEventListener('click', (e) => { if (!panel.hidden && !e.target.closest('#dock')) togglePanel(false); });
+
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    const id = decodeURIComponent(a.getAttribute('href').slice(1));
+    if (!select(id, { open: a.classList.contains('card') })) return;
+    e.preventDefault();
+    if (a.closest('#panel')) togglePanel(false);
+  });
+  // A row's own header toggles it as usual and selects it, without moving the page.
+  rows().forEach((d) => d.querySelector('summary').addEventListener('click', () => {
+    const stuck = d.open && d.getBoundingClientRect().top < 0;
+    select(d.id, { scroll: false });
+    if (stuck) requestAnimationFrame(() => d.scrollIntoView({ block: 'start' }));
+  }));
+  window.addEventListener('hashchange', () => select(decodeURIComponent(location.hash.slice(1)), { open: true }));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]') || viewer.open) return;
+    const claims = visibleClaims();
+    const at = claims.findIndex((c) => c.id === selected);
+    const go = (c) => c && select(c.id, { open: false });
+    if (e.key === 'n') step(1);
+    else if (e.key === 'p') step(-1);
+    else if (e.key === 'j') go(claims[at + 1] ?? (at === -1 ? claims[0] : null));
+    else if (e.key === 'k') go(claims[at - 1]);
+    else if (e.key === 'o' && selected) { const d = document.getElementById(selected); d.open = !d.open; }
+    else if (e.key === '/') togglePanel();
+    else if (e.key === 'Escape' && !panel.hidden) togglePanel(false);
+    else return;
+    e.preventDefault();
+  });
+
+  window.addEventListener('beforeprint', () => document.querySelectorAll('details').forEach((d) => (d.open = true)));
+  if (!select(decodeURIComponent(location.hash.slice(1)), { open: true })) paint();
+</script>
+</body>
+</html>
