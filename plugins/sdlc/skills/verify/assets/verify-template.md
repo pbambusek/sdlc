@@ -12,6 +12,16 @@ Copy into a run (`launch.mts --copy <path>`):
 
 - `<path>`: <what it is, such as an .env that holds only secret references>.
 
+<!-- The repo root's VERIFY.md only, when the project needs more than Ubuntu with Docker and Node. -->
+
+## Workspace
+
+<What the run's VM installs once, when its template is baked, and which host caches a run reads read-only.>
+
+```json
+{ "provision": ["<install command>"], "caches": [{ "host": "~/<cache folder>", "guest": "/var/cache/<tool>", "env": { "<TOOL_CACHE_VAR>": "/var/cache/<tool>" } }], "cpus": 4, "memory": 8, "disk": 60 }
+```
+
 <!-- The repo root's VERIFY.md only, when a claim needs a real service. A run holds a token; the launcher's nono proxy puts the real value on requests to the declared hosts. -->
 
 ## Credentials

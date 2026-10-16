@@ -5,11 +5,10 @@
  * also the value of each credential's variable. nono puts the real value on every request through the proxy to a declared host,
  * and tunnels everything else untouched, so the token arrives anywhere else as itself.
  */
-import { execFile, execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, copyFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join, relative } from 'node:path';
 
 export interface Credential {
   name: string;
@@ -19,7 +18,7 @@ export interface Credential {
   header?: string;
   format?: string;
   basic?: boolean;
-  // A calibration credential whose value is not secret: a run may see it, so the value scan skips it.
+  // A calibration credential whose value is not secret: a run may see it, so the value check skips it.
   known?: boolean;
 }
 export interface Declaration {
@@ -243,61 +242,9 @@ export const startProxy = async ({
 
 type Values = { name: string; value: string }[];
 
-/** The values the scans look for: every read credential except a known calibration one. */
+/** The values the check looks for: every read credential except a known calibration one. */
 export const secretValues = (reads: Read[]): Values => reads.flatMap((r) => (r.outcome === 'read' && !r.known ? [{ name: r.name, value: r.value }] : []));
 
-const SKIP = new Set(['node_modules', '.git', '.yarn', '.turbo']);
-
-/** Each file under `root`, and each named text, that holds a real value, as `<credential> in <where>`. Never returns a value. */
-export const findValues = ({ values, root, texts }: { values: Values; root: string; texts: Record<string, string> }) => {
-  const hits: string[] = [];
-  const check = (where: string, text: string) => {
-    for (const v of values) if (text.includes(v.value)) hits.push(`${v.name} in ${where}`);
-  };
-  const walk = (dir: string) => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      const p = join(dir, e.name);
-      if (e.isDirectory() && !SKIP.has(e.name)) walk(p);
-      else if (e.isFile() && statSync(p).size < 20 << 20) check(relative(root, p), readFileSync(p, 'latin1'));
-    }
-  };
-  walk(root);
-  for (const [where, text] of Object.entries(texts)) check(where, text);
-  return hits;
-};
-
-/** Each live process under `rootPid` whose environment holds a real value, as `<credential> in the environment of <command>`. */
-export const findValuesInProcesses = ({ values, rootPid }: { values: Values; rootPid: number }) => {
-  // macOS's `ps -E` appends each process's environment to its command, for processes this user owns; Linux keeps it in /proc.
-  const linux = process.platform === 'linux';
-  const out = execFileSync('ps', [...(linux ? [] : ['-E']), '-ww', '-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 1 << 28 });
-  const environ = (pid: string) => {
-    try {
-      return readFileSync(`/proc/${pid}/environ`, 'latin1').replaceAll('\0', ' ');
-    } catch {
-      return '';
-    }
-  };
-  const rows = out
-    .split('\n')
-    .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
-    .filter((m) => m !== null)
-    .map((m) => (linux ? [m[0], m[1], m[2], `${m[3]} ${environ(m[1]!)}`] : [...m]));
-  const children = new Map<number, number[]>();
-  for (const [, pid, ppid] of rows) children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), Number(pid)]);
-  const tree = new Set<number>();
-  const visit = (pid: number) => (tree.add(pid), (children.get(pid) ?? []).forEach(visit));
-  visit(rootPid);
-  const hits: string[] = [];
-  for (const [, pid, , text] of rows) {
-    if (!tree.has(Number(pid))) continue;
-    for (const v of values) if (text!.includes(v.value)) hits.push(`${v.name} in the environment of ${text!.split(' ')[0]}`);
-  }
-  return { hits, processes: tree.size };
-};
+/** Each named text (the session transcript) that holds a real value, as `<credential> in <where>`. Never returns a value. */
+export const findValues = ({ values, texts }: { values: Values; texts: Record<string, string> }) =>
+  Object.entries(texts).flatMap(([where, text]) => values.filter((v) => text.includes(v.value)).map((v) => `${v.name} in ${where}`));

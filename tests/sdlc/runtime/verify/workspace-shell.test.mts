@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseScript, refusals, splitAnd, words } from '../../../../plugins/sdlc/runtime/verify/workspace-shell.mts';
+import { parseScript, splitAnd, words } from '../../../../plugins/sdlc/runtime/verify/workspace-shell.mts';
 
 // The shape Claude Code's Bash tool hands its shell prefix: its own setup, then the command, then the folder it ended in.
 const q = (s: string) => `'${s.replaceAll("'", `'"'"'`)}'`;
@@ -36,18 +36,5 @@ describe('splitAnd', () => {
 describe('words', () => {
   it('unquotes shell words', () => {
     expect(words(`'a b' "c \\"d\\"" e\\ f < /dev/null`)).toEqual(['a b', 'c "d"', 'e f']);
-  });
-});
-
-describe('refusals', () => {
-  it('finds refused paths outside the run folder in output', () => {
-    const output = [
-      'cat: /Users/me/.ssh/id_ed25519: Operation not permitted',
-      'bash: /home/me/.gitconfig: Permission denied',
-      'cat: /work/run/own.txt: Permission denied',
-      "Error: EACCES: permission denied, open '/etc/shadow'",
-      'fine: /usr/bin/env',
-    ].join('\n');
-    expect(refusals(output, '/work/run').map((r) => r.path)).toEqual(['/Users/me/.ssh/id_ed25519', '/home/me/.gitconfig', '/etc/shadow']);
   });
 });

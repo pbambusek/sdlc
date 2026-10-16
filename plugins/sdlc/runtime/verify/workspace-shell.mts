@@ -1,10 +1,9 @@
 /**
  * The verifier's shell: Claude Code runs each Bash tool command through it (`CLAUDE_CODE_SHELL_PREFIX`), outside the workspace.
- *   node workspace-shell.mts --socket <path> --log <file> --workspace <name> --work <run folder> <shell script>
+ *   node workspace-shell.mts --socket <path> --log <file> --workspace <name> <shell script>
  * Claude Code hands it one script: its own shell setup, then `eval <the command>`, then `pwd -P >| <file>` to track the folder
  * the command ended in. The setup is for a shell on this machine, so only the command is sent into the workspace; the folder
- * comes back and is written here. Every command is logged with the workspace it ran in, its exit status, and each access the
- * workspace refused it, read from its output: the sandbox reports refusals only for the process it started, not its commands.
+ * comes back and is written here. Every command is logged with the workspace it ran in and its exit status.
  */
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
@@ -73,21 +72,6 @@ export const parseScript = (script: string): { evalArgs: string; command: string
   return { evalArgs: evaluated[1]!, command: words(evaluated[1]!).join(' '), cwdFile };
 };
 
-const REFUSED = /Operation not permitted|Permission denied|\bEPERM\b|\bEACCES\b/;
-
-/** Each path outside the run folder that a line of output says was refused, with the line. */
-export const refusals = (output: string, work: string): { path: string; line: string }[] => {
-  const found = new Map<string, string>();
-  for (const line of output.split('\n')) {
-    if (!REFUSED.test(line)) continue;
-    for (const [, path] of line.matchAll(/((?:\/[^\s:'"`,()]+)+)/g)) {
-      if (!path || path === work || path.startsWith(work + '/') || path.split('/').length < 3) continue;
-      if (!found.has(path)) found.set(path, line.trim().slice(0, 300));
-    }
-  }
-  return [...found].map(([path, line]) => ({ path, line }));
-};
-
 export interface LoggedCommand {
   time: string;
   workspace: string;
@@ -95,7 +79,6 @@ export interface LoggedCommand {
   command: string;
   exit: number | null;
   ms: number;
-  refused: { path: string; line: string }[];
 }
 
 const main = async () => {
@@ -109,7 +92,6 @@ const main = async () => {
   const socket = opt('--socket');
   const log = opt('--log');
   const workspace = opt('--workspace');
-  const work = opt('--work');
   const script = args.join(' ');
   const started = Date.now();
   const cwd = process.cwd();
@@ -121,15 +103,11 @@ const main = async () => {
 
   const parsed = parseScript(script);
   if (!parsed) {
-    record({ command: script.slice(0, 2000), exit: 126, refused: [] });
+    record({ command: script.slice(0, 2000), exit: 126 });
     process.stderr.write('workspace: this shell runs only Claude Code Bash tool commands, and this script has another shape\n');
     process.exit(126);
   }
 
-  let output = '';
-  const keep = (b: Buffer) => {
-    if (output.length < 32 << 20) output += b.toString();
-  };
   const exit = await new Promise<number | null>((done) => {
     const conn = connect(socket);
     let status: number | null = null;
@@ -141,14 +119,10 @@ const main = async () => {
     createInterface({ input: conn }).on('line', (line) => {
       const m = JSON.parse(line) as { out?: string; err?: string; cwd?: string; exit?: number };
       if (m.out) {
-        const b = Buffer.from(m.out, 'base64');
-        keep(b);
-        process.stdout.write(b);
+        process.stdout.write(Buffer.from(m.out, 'base64'));
       }
       if (m.err) {
-        const b = Buffer.from(m.err, 'base64');
-        keep(b);
-        process.stderr.write(b);
+        process.stderr.write(Buffer.from(m.err, 'base64'));
       }
       if (m.cwd) writeFileSync(parsed.cwdFile, m.cwd + '\n');
       if (m.exit !== undefined) status = m.exit;
@@ -157,7 +131,7 @@ const main = async () => {
     // Claude Code stops a command that runs too long by signalling its shell; closing the connection stops it in the workspace.
     for (const s of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(s, () => conn.destroy());
   });
-  record({ command: parsed.command, exit, refused: refusals(output, work) });
+  record({ command: parsed.command, exit });
   process.exit(exit ?? 143);
 };
 

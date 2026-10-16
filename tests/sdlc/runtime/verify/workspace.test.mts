@@ -1,30 +1,96 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { platform, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openWorkspace, prepareWorkspace, RUNS, type Workspace } from '../../../../plugins/sdlc/runtime/verify/workspace.mts';
+import {
+  cacheFolder,
+  ensureTemplate,
+  openWorkspace,
+  parseRecipe,
+  RUNS,
+  templateName,
+  type Workspace,
+} from '../../../../plugins/sdlc/runtime/verify/workspace.mts';
 import type { LoggedCommand } from '../../../../plugins/sdlc/runtime/verify/workspace-shell.mts';
-import { needs, runtimeDir, skillDir } from './helpers.mts';
+import { needs, runtimeDir, temp } from './helpers.mts';
 
 const q = (s: string) => `'${s.replaceAll("'", `'"'"'`)}'`;
-const t = needs('a command in the workspace', 'nono');
+const section = (json: unknown) => `# Verify\n\n## Workspace\n\n\`\`\`json\n${JSON.stringify(json)}\n\`\`\`\n`;
+
+describe('parseRecipe', () => {
+  it('is the defaults when VERIFY.md has no Workspace section', () => {
+    expect(parseRecipe('# Verify\n')).toEqual({ provision: '', caches: [], cpus: 4, memory: 8, disk: 60 });
+    expect(parseRecipe(null).cpus).toBe(4);
+  });
+
+  it('reads provisioning lines, caches and the size', () => {
+    const recipe = parseRecipe(
+      section({
+        provision: ['apt-get install -y jq', 'echo done'],
+        caches: [{ host: '~/.cache/tool', guest: '/var/cache/tool', env: { TOOL_CACHE: '/var/cache/tool' } }],
+        cpus: 6,
+      }),
+    );
+    expect(recipe).toEqual({
+      provision: 'apt-get install -y jq\necho done',
+      caches: [{ host: '~/.cache/tool', guest: '/var/cache/tool', env: { TOOL_CACHE: '/var/cache/tool' } }],
+      cpus: 6,
+      memory: 8,
+      disk: 60,
+    });
+  });
+
+  it('names every malformed field', () => {
+    expect(() => parseRecipe(section({ cpus: 0, caches: [{ host: 'relative', guest: 'also' }] }))).toThrow(
+      'VERIFY.md Workspace: cpus: a positive whole number; caches.0.host: a host folder, absolute or under ~/; caches.0.guest: an absolute folder in the VM',
+    );
+    expect(() => parseRecipe('## Workspace\n\nno block\n')).toThrow('the Workspace section has no ```json block');
+  });
+});
+
+describe('cacheFolder', () => {
+  it("shares a folder that holds only a tool's packages", () => {
+    const dir = temp();
+    expect(cacheFolder(dir, [])).toEqual({ outcome: 'shared', path: dir });
+  });
+
+  it('refuses the home folder, a folder that holds a forbidden one, and one inside it', () => {
+    const repo = temp();
+    mkdirSync(join(repo, 'cache'));
+    expect(cacheFolder('~/', []).outcome).toBe('refused');
+    expect(cacheFolder(repo, [join(repo, 'src')])).toMatchObject({ outcome: 'refused', reason: `${repo} overlaps ${join(repo, 'src')}` });
+    expect(cacheFolder(join(repo, 'cache'), [repo])).toMatchObject({ outcome: 'refused' });
+  });
+
+  it('reports a folder this machine does not have', () => {
+    expect(cacheFolder('/no/such/cache', [])).toEqual({ outcome: 'missing', reason: '/no/such/cache does not exist on this machine' });
+  });
+});
+
+describe('templateName', () => {
+  it('is the same for the same recipe and roots, and new when either changes', () => {
+    const recipe = parseRecipe(null);
+    expect(templateName(recipe, '')).toMatch(/^sdlc-[0-9a-f]{12}$/);
+    expect(templateName(recipe, '')).toBe(templateName(parseRecipe(null), ''));
+    expect(templateName({ ...recipe, provision: 'echo x' }, '')).not.toBe(templateName(recipe, ''));
+    expect(templateName(recipe, 'ROOT')).not.toBe(templateName(recipe, ''));
+  });
+});
+
+const t = needs('a command in the workspace VM', 'limactl');
+const pluginDir = realpathSync(join(runtimeDir, '../..'));
 
 describe.skipIf(t.skip)(t.name, () => {
-  let ws: Workspace;
+  let ws: Workspace & { name: string };
   let work: string;
   let stateDir: string;
-  let outside: string;
-  let tempOutside: string;
-  let outsider: ReturnType<typeof spawn>;
   const cwdFile = join(realpathSync(tmpdir()), `sdlc-test-cwd-${process.pid}`);
-  const secret = `real-secret-${process.pid}`;
-  const marker = `marker-${process.pid}`;
 
   /** Runs `command` through the verifier's shell as Claude Code's Bash tool does, from `cwd`. */
   const run = (command: string, cwd = work) => {
     const script = `shopt -u extglob 2>/dev/null || true && eval ${q(command)} < /dev/null && pwd -P >| ${q(cwdFile)}`;
-    const r = spawnSync('bash', ['-c', `${q(ws.shell)} ${q(script)}`], { cwd, encoding: 'utf8', timeout: 60_000 });
+    const r = spawnSync('bash', ['-c', `${q(ws.shell)} ${q(script)}`], { cwd, encoding: 'utf8', timeout: 120_000 });
     return { status: r.status, out: r.stdout, err: r.stderr };
   };
   const logged = (): LoggedCommand[] =>
@@ -37,95 +103,64 @@ describe.skipIf(t.skip)(t.name, () => {
     mkdirSync(RUNS, { recursive: true });
     work = realpathSync(mkdtempSync(join(RUNS, 'r-')));
     stateDir = realpathSync(mkdtempSync(join(RUNS, 'l-')));
-    mkdirSync(join(work, '.verify'), { recursive: true });
-    // Stand-ins for what the workspace must not reach: a file in the owner's home outside the run (the launcher's own folder),
-    // and a file in the system temp, where Claude Code keeps its sessions' files.
-    outside = join(stateDir, 'outside.txt');
-    writeFileSync(outside, 'owner data\n');
-    tempOutside = realpathSync(mkdtempSync(join('/tmp', 'claude-test-')));
-    writeFileSync(join(tempOutside, 'session.jsonl'), 'transcript\n');
-    // A process outside the workspace whose environment holds a secret.
-    outsider = spawn('sleep', ['120'], { env: { ...process.env, SDLC_TEST_MARKER: marker }, stdio: 'ignore' });
-    process.env.SDLC_TEST_SECRET = secret;
-    ws = await openWorkspace(prepareWorkspace({ work, runtimeDir, skillDir, stateDir, env: { PATH: process.env.PATH!, LANG: 'C', GIVEN: 'placeholder' } }));
-  });
+    writeFileSync(join(work, 'app.txt'), 'exported\n');
+    mkdirSync(join(work, 'sub'));
+    const template = ensureTemplate({ recipe: parseRecipe(null), log: () => {} });
+    ws = await openWorkspace({ template, work, stateDir, pluginDir, runtimeDir, caches: [], env: { TERM: 'dumb', GIVEN: 'placeholder' } });
+  }, 3_600_000);
 
   afterAll(async () => {
-    outsider?.kill();
-    delete process.env.SDLC_TEST_SECRET;
     await ws?.close();
-    for (const d of [work, stateDir, tempOutside, cwdFile]) if (d) rmSync(d, { recursive: true, force: true });
-  });
+    for (const d of [work, stateDir, cwdFile]) if (d) rmSync(d, { recursive: true, force: true });
+  }, 300_000);
 
-  it('runs in the run folder, keeps its exit status, and reports the folder it ended in', () => {
-    mkdirSync(join(work, 'sub'), { recursive: true });
-    const r = run('echo hello; cd sub');
+  it('runs in the exported folder, keeps its exit status, and reports the folder it ended in', () => {
+    const r = run('cat app.txt; cd sub');
     expect(r.status).toBe(0);
-    expect(r.out).toBe('hello\n');
+    expect(r.out).toBe('exported\n');
     expect(readFileSync(cwdFile, 'utf8').trim()).toBe(join(work, 'sub'));
     expect(run('exit 7').status).toBe(7);
   });
 
   it('logs every command with its workspace and exit status', () => {
     run('echo logged; exit 3');
-    expect(logged().find((c) => c.command === 'echo logged; exit 3')).toMatchObject({ workspace: 'local', exit: 3, cwd: work });
+    expect(logged().find((c) => c.command === 'echo logged; exit 3')).toMatchObject({ workspace: 'local-vm', exit: 3, cwd: work });
   });
 
-  it('gets nothing from a file in the source repo', () => {
-    const r = run(`cat ${q(join(runtimeDir, '../../../../tests/sdlc/runtime/verify/workspace.test.mts'))}`);
-    expect(r.status).not.toBe(0);
-    expect(r.out).toBe('');
+  it("holds the export on its own disk: the host keeps only the run's .verify folder", () => {
+    expect(spawnSync('ls', ['-A', work], { encoding: 'utf8' }).stdout.trim()).toBe('.verify');
+    expect(run('ls -A').out.split('\n')).toEqual(expect.arrayContaining(['app.txt', 'sub', '.verify']));
   });
 
-  it("gets nothing from the owner's home outside the toolchains, and its own home is the run's", () => {
-    const r = run(`cat ${q(outside)}; echo "home=$HOME"`);
-    expect(r.out).not.toContain('owner data');
-    expect(r.out).toContain(`home=${join(work, '.verify/home')}`);
+  it("has nothing of the owner's: no home, no session's transcripts, no source repo, no login", () => {
+    // The home holds only the paths down to what the VM shares: the run folder and the plugin's folder.
+    const shared = [...new Set(['.sdlc-verify', relative(homedir(), pluginDir).split('/')[0]!])].sort();
+    const r = run(
+      `ls -A ${q(homedir())}; test -e ${q(join(homedir(), '.claude/projects'))} && echo HAS-SESSIONS; test -e ${q(join(pluginDir, '../tests'))} && echo HAS-REPO; command -v gh az || true`,
+    );
+    expect(r.out.trim().split('\n').filter(Boolean).sort()).toEqual(shared);
   });
 
-  it("gets nothing from the system temp, where Claude Code keeps its sessions' files", () => {
-    const r = run(`cat ${q(join(tempOutside, 'session.jsonl'))}; ls ${q(tempOutside)}`);
-    expect(r.out).not.toMatch(/transcript|session\.jsonl/);
-  });
-
-  it('records each refused access with its path', () => {
-    run(`cat ${q(outside)}`);
-    expect(logged().some((c) => c.refused.some((x) => x.path === outside))).toBe(true);
-  });
-
-  it('does not land a write outside the run folder and temp', () => {
-    const target = join(stateDir, 'written.txt');
-    run(`echo x > ${q(target)}; touch ${q(join(tempOutside, 'written'))}`);
-    expect(existsSync(target)).toBe(false);
-    // Linux's /tmp is temp the workspace may write, though not read; macOS's holds Claude Code's files and is refused.
-    if (platform() === 'darwin') expect(existsSync(join(tempOutside, 'written'))).toBe(false);
-    expect(run('echo t > "$TMPDIR/own" && cat "$TMPDIR/own"').out).toBe('t\n');
-  });
-
-  it("holds only the environment it was given, and sees no other process's", () => {
+  it('holds only the environment it was given', () => {
     const env = run('env').out;
     expect(env).toMatch(/^GIVEN=placeholder$/m);
-    expect(env).not.toContain(secret);
-    const scan = run(
-      `{ ps -E -A -ww -o command= 2>/dev/null; cat /proc/[0-9]*/environ 2>/dev/null | tr '\\0' '\\n'; } | grep -c -e ${q(marker)} -e ${q(secret)}; true`,
-    );
-    expect(scan.out.trim()).toBe('0');
+    expect(env).toMatch(/^NODE_EXTRA_CA_CERTS=\/etc\/ssl\/certs\/ca-certificates\.crt$/m);
+    expect(env).not.toMatch(/^ANTHROPIC_/m);
   });
 
-  const az = needs('gets no Azure CLI token', 'az');
-  it.skipIf(az.skip)(az.name, () => {
-    const r = run('az account get-access-token --query accessToken -o tsv');
-    expect(r.status).not.toBe(0);
-    expect(r.out.trim()).toBe('');
+  it('keeps what a command started in the background running for the next', () => {
+    expect(run('(sleep 600 &); echo started').out).toBe('started\n');
+    expect(run('pgrep -c -x sleep').out.trim()).toBe('1');
   });
 
-  it('keeps what a command started in the background running for the next, and stops it on close', async () => {
-    const tag = `${4000 + (process.pid % 1000)}`;
-    expect(run(`(sleep ${tag} &); echo started`).out).toBe('started\n');
-    expect(run('echo next').out).toBe('next\n');
-    expect(spawnSync('pgrep', ['-f', `sleep ${tag}`], { encoding: 'utf8' }).stdout.trim()).not.toBe('');
+  it('lists the exported files a command changed', () => {
+    run('echo changed > app.txt');
+    expect(ws.changed()).toEqual(['app.txt']);
+  });
+
+  it('deletes the VM on close', async () => {
     const closed = await ws.close();
-    expect(closed.stillRunning).toEqual([]);
-    expect(spawnSync('pgrep', ['-f', `sleep ${tag}`], { encoding: 'utf8' }).stdout.trim()).toBe('');
-  });
+    expect(closed).toEqual({ stopped: [`VM ${ws.name}`], stillRunning: [] });
+    expect(spawnSync('limactl', ['list', '--format', '{{.Name}}'], { encoding: 'utf8' }).stdout.split('\n')).not.toContain(ws.name);
+  }, 300_000);
 });

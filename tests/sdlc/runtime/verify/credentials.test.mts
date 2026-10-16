@@ -1,11 +1,9 @@
-import { spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type Declaration,
   findValues,
-  findValuesInProcesses,
   parseDeclaration,
   type Read,
   readCredentials,
@@ -124,50 +122,12 @@ describe('secretValues', () => {
 describe('findValues', () => {
   const values = [{ name: 'API_TOKEN', value: 'real-value-1234' }];
 
-  it('reports a planted value by credential and file, never the value', () => {
-    const root = temp();
-    mkdirSync(join(root, 'logs'));
-    writeFileSync(join(root, 'logs', 'run.log'), 'request with Authorization: Bearer real-value-1234\n');
-    writeFileSync(join(root, 'clean.txt'), 'nothing here\n');
-    const hits = findValues({ values, root, texts: {} });
-    expect(hits).toEqual(['API_TOKEN in logs/run.log']);
+  it('reports a value in a named text by credential and text, never the value', () => {
+    expect(findValues({ values, texts: { 'the session transcript': '... real-value-1234 ...' } })).toEqual(['API_TOKEN in the session transcript']);
   });
 
-  it('reports a value in a named text', () => {
-    expect(findValues({ values, root: temp(), texts: { 'the session transcript': '... real-value-1234 ...' } })).toEqual([
-      'API_TOKEN in the session transcript',
-    ]);
-  });
-
-  it('skips dependency and git folders', () => {
-    const root = temp();
-    for (const d of ['node_modules', '.git']) {
-      mkdirSync(join(root, d));
-      writeFileSync(join(root, d, 'f'), 'real-value-1234');
-    }
-    expect(findValues({ values, root, texts: {} })).toEqual([]);
-  });
-
-  it('finds nothing in a clean run', () => {
-    const root = temp();
-    writeFileSync(join(root, 'a.txt'), 'placeholder-token');
-    expect(findValues({ values, root, texts: { transcript: 'clean' } })).toEqual([]);
-  });
-});
-
-describe('findValuesInProcesses', () => {
-  const t = needs("reports a value in a run process's environment", "macOS's ps -E or Linux's /proc", ['darwin', 'linux'].includes(process.platform));
-  it.skipIf(t.skip)(t.name, async () => {
-    // Not a system binary: macOS hides those processes' environments from `ps -E`.
-    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { env: { API_TOKEN: 'real-value-1234' }, stdio: 'ignore' });
-    try {
-      await new Promise((done) => setTimeout(done, 200));
-      const { hits, processes } = findValuesInProcesses({ values: [{ name: 'API_TOKEN', value: 'real-value-1234' }], rootPid: child.pid! });
-      expect(hits).toEqual([`API_TOKEN in the environment of ${process.execPath}`]);
-      expect(processes).toBeGreaterThanOrEqual(1);
-    } finally {
-      child.kill();
-    }
+  it('finds nothing in a clean text', () => {
+    expect(findValues({ values, texts: { transcript: 'placeholder-token' } })).toEqual([]);
   });
 });
 

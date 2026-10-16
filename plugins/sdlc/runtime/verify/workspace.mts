@@ -1,394 +1,399 @@
 /**
- * A run's workspace: where every command the verifier runs executes, confined so that it reads and writes its own folder and
- * temp, reads the skill's folder and the toolchains a build needs, and nothing else of the owner's. The verifier, its login
- * and its transcript stay outside. The verifier's Bash tool runs through a shell (workspace-shell.mts) that sends each command
- * to a server inside the workspace (workspace-server.mts) and logs it.
+ * A run's workspace: a fresh Linux VM (Lima) cloned per run from a template, where every command the verifier runs executes.
+ * The verifier, its login and its transcript stay on the host. The VM holds the exported commit on its own disk and shares
+ * back only the run's `.verify` folder; it also sees the plugin's folder and the caches the project declares, read-only.
+ * Nothing else of the owner's is there to read: no home, no other session's transcript or memory, no source repo, no login.
+ * The verifier's Bash tool runs through a shell (workspace-shell.mts) that sends each command to a server inside the VM
+ * (workspace-server.mts), over a socket Lima forwards to the host, and logs it.
  *
- * This is the local workspace, on the owner's machine: nono's sandbox, Seatbelt on macOS and Landlock on Linux, one profile for
- * both. Another provider (a remote sandbox) would run the same server where it confines commands; nothing outside this file
- * names the provider.
+ * The template is baked once per recipe: Lima's Docker template, the host's extra trusted roots, Node for the server, and
+ * the project's own `## Workspace` provisioning from VERIFY.md. Its name is a hash of all of that, so a changed recipe bakes a
+ * new one and an unchanged one is reused. A run's clone is deleted when the run ends, with everything it started.
  *
- * The run gets a home of its own inside its folder, because a home it shares would hold what it must not see (other
- * sessions' transcripts, keys, logins), and Landlock can't carve exceptions out of a granted folder. The run's home links the
- * shared toolchains read-only, so a build finds them where it looks; every cache it writes is its own, so nothing it leaves
- * behind runs later on the owner's machine outside the workspace.
- *
- * Not closed: the Docker socket. A container the run starts can bind-mount whatever Docker shares from the host.
+ * Not closed: the VM reaches every service on the host's loopback (Lima's host.lima.internal), not only the run's proxy.
  */
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { homedir, platform } from 'node:os';
-import { basename, dirname, join } from 'node:path';
-
-// Toolchains under the owner's home that a run may read, linked into the run's home where a tool looks for them.
-const TOOLCHAINS = [
-  '.nvm',
-  '.dotnet',
-  '.rd/bin',
-  '.local/bin',
-  // Not `.aspire/versions` or `.aspire/npm`: the Aspire CLI writes those on every start, so each run has its own.
-  '.aspire/bin',
-  '.aspire/bundle',
-  '.aspire/dev-certs',
-];
-// Caches whose entries a run reads but whose folder it writes to: the run's own folder links each entry in, except those
-// listed, which the tool writes (Playwright keeps its daemon's and browsers' state next to the browsers).
-const CACHE_ENTRIES = [
-  { path: 'Library/Caches/ms-playwright', own: ['daemon', 'b', 'cli-update-check.json'] },
-  { path: '.cache/ms-playwright', own: ['daemon', 'b', 'cli-update-check.json'] },
-];
-// Small settings files a tool needs and may change: copied into the run's home, never linked.
-const SETTINGS = ['.aspire/aspire.config.json', '.aspire/globalsettings.json'];
-// Toolchains installed outside the home that the system groups don't cover.
-const SYSTEM_TOOLCHAINS = ['/usr/local/share/dotnet', '/usr/share/dotnet', '/usr/lib/dotnet'];
-// Files in the owner's home that every macOS process reads at start: the text encoding CoreFoundation uses, nothing private.
-const SYSTEM_FILES = ['.CFUserTextEncoding'];
-
-// macOS-only rules; Linux needs none of them. Chromium runs inside Seatbelt only when it may open IOKit and register its own
-// Mach services. .NET verifies TLS (NuGet restores, the credential proxy's root) only through the system's trust services;
-// keychain items stay unreadable with them.
-const SEATBELT = [
-  '(allow iokit-open)',
-  '(allow mach-register (global-name-prefix "org.chromium."))',
-  '(allow mach-lookup (global-name-prefix "org.chromium."))',
-  '(allow mach-lookup (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent") (global-name "com.apple.SecurityServer") (global-name "com.apple.ocspd"))',
-];
-// Chrome's own sandbox can't nest inside the workspace's, and its crash reporter writes outside the run's home.
-const PLAYWRIGHT = {
-  browser: { browserName: 'chromium', launchOptions: { chromiumSandbox: false, args: ['--disable-crash-reporter', '--disable-breakpad'] } },
-};
+import { join, resolve } from 'node:path';
 
 /**
- * Where run folders and the launcher's own files for each run live: under the owner's home, which the workspace can't read
- * beyond its own run folder, and outside the system temp it can't reach either. Short, because tools in a run open Unix
- * sockets under its folder and macOS caps their paths at 104 bytes.
+ * Where run folders and the launcher's own files for each run live. Short, because Lima keeps each instance's sockets under
+ * its own folder and macOS caps a socket path at 104 bytes.
  */
 export const RUNS = join(homedir(), '.sdlc-verify');
 
-/** What this machine lacks to confine a run, or null when it has it. */
-export const workspaceMissing = (): string | null => {
-  if (platform() !== 'darwin' && platform() !== 'linux') return `a confined workspace runs on macOS and Linux, not ${platform()}`;
-  const nono = spawnSync('nono', ['--version'], { encoding: 'utf8' });
-  if (nono.status !== 0) return 'nono, which confines the workspace, is not installed (brew install nono)';
-  return null;
+// Bumped when the base recipe below changes, so every template is baked again.
+const BASE_VERSION = 2;
+const GUEST_RUN = '/run/sdlc-verify';
+const GUEST_SOCKET = `${GUEST_RUN}/ws.sock`;
+const SYSTEM_BUNDLE = '/etc/ssl/certs/ca-certificates.crt';
+// Every variable a tool reads its trusted roots from, pointed at the VM's system bundle, which holds the host's roots and the proxy's.
+const TRUST_VARS = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE', 'GIT_SSL_CAINFO'];
+// Playwright's own Chromium: the CLI otherwise looks for Google Chrome, which the VM doesn't have.
+const PLAYWRIGHT = { browser: { browserName: 'chromium' } };
+
+/** A host folder a run reads through a writable layer of its own: the tool's cache, never written on the host. */
+export interface Cache {
+  host: string;
+  guest: string;
+  env: Record<string, string>;
+}
+/** The project's `## Workspace` section: what its template installs, the caches a run reads, and the VM's size. */
+export interface Recipe {
+  provision: string;
+  caches: Cache[];
+  cpus: number;
+  memory: number;
+  disk: number;
+}
+
+const DEFAULTS = { provision: '', caches: [], cpus: 4, memory: 8, disk: 60 };
+
+/** The `## Workspace` section's JSON block, or the defaults when VERIFY.md has none. Throws when the block is malformed. */
+export const parseRecipe = (verifyMd: string | null): Recipe => {
+  const section = verifyMd?.split(/^## /m).find((s) => /^Workspace\s*\n/.test(s));
+  if (!section) return { ...DEFAULTS };
+  const block = section.match(/```json\n([\s\S]*?)```/)?.[1];
+  if (!block) throw new Error('VERIFY.md: the Workspace section has no ```json block');
+  const r = JSON.parse(block) as Partial<Recipe>;
+  const problems: string[] = [];
+  const provision = Array.isArray(r.provision) ? r.provision.join('\n') : (r.provision ?? '');
+  if (typeof provision !== 'string') problems.push('provision: a shell script, as a string or a list of lines');
+  for (const k of ['cpus', 'memory', 'disk'] as const)
+    if (r[k] !== undefined && !(Number.isInteger(r[k]) && r[k]! > 0)) problems.push(`${k}: a positive whole number`);
+  const caches = Array.isArray(r.caches) ? r.caches : r.caches === undefined ? [] : (problems.push('caches: a list'), []);
+  for (const [i, c] of caches.entries()) {
+    if (typeof c?.host !== 'string' || !/^(~\/|\/)/.test(c.host)) problems.push(`caches.${i}.host: a host folder, absolute or under ~/`);
+    if (typeof c?.guest !== 'string' || !c.guest.startsWith('/')) problems.push(`caches.${i}.guest: an absolute folder in the VM`);
+    if (c?.env !== undefined && (typeof c.env !== 'object' || !Object.values(c.env).every((v) => typeof v === 'string')))
+      problems.push(`caches.${i}.env: names to values`);
+  }
+  if (problems.length) throw new Error(`VERIFY.md Workspace: ${problems.join('; ')}`);
+  return { ...DEFAULTS, ...r, provision, caches: caches.map((c) => ({ host: c.host, guest: c.guest, env: c.env ?? {} })) } as Recipe;
 };
 
-/** The Docker socket the owner's CLI talks to, when it is a local Unix socket. */
-const dockerSocket = (): string | null => {
-  let host = process.env.DOCKER_HOST;
-  if (!host) {
-    try {
-      host = execFileSync('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 10_000,
-      }).trim();
-    } catch {
-      host = existsSync('/var/run/docker.sock') ? 'unix:///var/run/docker.sock' : '';
-    }
-  }
-  const path = host?.startsWith('unix://') ? host.slice('unix://'.length) : null;
-  return path && existsSync(path) ? path : null;
+const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + '/');
+
+/**
+ * The host folder a cache shares, or why it can't: a cache is a tool's packages, so one that is or holds the owner's home, a
+ * folder that holds how the code was written (the source repo, Claude Code's config) or sits inside one, is refused.
+ */
+export const cacheFolder = (host: string, forbidden: string[]): { outcome: 'shared'; path: string } | { outcome: 'refused' | 'missing'; reason: string } => {
+  const path = resolve(host.replace(/^~(?=\/)/, homedir()));
+  if (!existsSync(path)) return { outcome: 'missing', reason: `${host} does not exist on this machine` };
+  const real = realpathSync(path);
+  if (inside(homedir(), real)) return { outcome: 'refused', reason: `${host} is or holds the home folder` };
+  const hit = forbidden.find((f) => inside(f, real) || inside(real, f));
+  return hit ? { outcome: 'refused', reason: `${host} overlaps ${hit}` } : { outcome: 'shared', path: real };
+};
+
+/** What this machine lacks to run a workspace, or null when it has it. */
+export const workspaceMissing = (): string | null => {
+  if (platform() !== 'darwin' && platform() !== 'linux') return `a run's workspace is a Lima VM, on macOS or Linux, not ${platform()}`;
+  if (spawnSync('limactl', ['--version'], { stdio: 'ignore' }).status !== 0) return 'Lima, which runs the workspace VM, is not installed (brew install lima)';
+  return null;
 };
 
 /**
- * A localhost certificate for the run's HTTPS endpoints. ASP.NET's development certificate lives in the macOS keychain, which
- * the workspace can't open, so Kestrel (an Aspire dashboard, any ASP.NET app) gets this one from files instead. Null without openssl.
+ * The host's trusted roots beyond the public ones, as PEM: a network that inspects TLS (a corporate proxy) re-signs every
+ * site with its own root, and a fresh VM trusts nothing it hasn't been given.
  */
-const makeDevCert = (dir: string): { cert: string; key: string } | null => {
+export const hostRoots = (): string => {
+  if (platform() === 'darwin') {
+    const r = spawnSync('security', ['find-certificate', '-a', '-p', '/Library/Keychains/System.keychain'], { encoding: 'utf8' });
+    return r.status === 0 ? r.stdout : '';
+  }
+  const dir = '/usr/local/share/ca-certificates';
+  return existsSync(dir)
+    ? readdirSync(dir, { recursive: true, encoding: 'utf8' })
+        .filter((f) => f.endsWith('.crt'))
+        .map((f) => readFileSync(join(dir, f), 'utf8'))
+        .join('\n')
+    : '';
+};
+
+const lima = (args: string[], opts: { input?: string; timeout?: number } = {}) =>
+  spawnSync('limactl', args, { encoding: 'utf8', input: opts.input, timeout: opts.timeout ?? 600_000, maxBuffer: 1 << 28 });
+const limaOk = (args: string[], what: string, opts?: { input?: string; timeout?: number }) => {
+  const r = lima(args, opts);
+  if (r.status !== 0) throw new Error(`${what} failed: ${(r.stderr || r.stdout || r.error?.message || '').trim().split('\n').slice(-5).join(' | ')}`);
+  return r.stdout;
+};
+const instanceDir = (name: string) => limaOk(['list', name, '--format', '{{.Dir}}'], `finding the VM ${name}`).trim();
+const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+
+/** The template's name for a recipe: the same recipe, base and host roots always name the same template. */
+export const templateName = (recipe: Recipe, roots: string) =>
+  `sdlc-${createHash('sha256')
+    .update(
+      JSON.stringify({
+        BASE_VERSION,
+        node: process.versions.node.split('.')[0],
+        provision: recipe.provision,
+        size: [recipe.cpus, recipe.memory, recipe.disk],
+        roots,
+      }),
+    )
+    .digest('hex')
+    .slice(0, 12)}`;
+
+/**
+ * The template for `recipe`, baked first when this machine has none: Lima's Docker template with no mounts and no port
+ * forwarding to the host, the host's roots trusted, Node for the workspace server, then the project's provisioning. A bake
+ * that fails leaves no template behind, so the next launch bakes again.
+ */
+export const ensureTemplate = ({ recipe, log }: { recipe: Recipe; log: (line: string) => void }): string => {
+  const roots = hostRoots();
+  const name = templateName(recipe, roots);
+  const dir = join(RUNS, 'templates');
   mkdirSync(dir, { recursive: true });
-  const cert = join(dir, 'cert.pem');
-  const key = join(dir, 'key.pem');
-  const args = [
-    'req',
-    '-x509',
-    '-newkey',
-    'rsa:2048',
-    '-nodes',
-    '-days',
-    '7',
-    '-subj',
-    '/CN=localhost',
-    '-addext',
-    'subjectAltName=DNS:localhost,IP:127.0.0.1',
-    '-keyout',
-    key,
-    '-out',
-    cert,
-  ];
-  return spawnSync('openssl', args, { stdio: 'ignore' }).status === 0 ? { cert, key } : null;
-};
+  const listed = lima(['list', '--format', '{{.Name}}']).stdout.split('\n');
+  if (listed.includes(name) && existsSync(join(instanceDir(name), 'sdlc-baked'))) return name;
+  if (listed.includes(name)) lima(['delete', '-f', name]);
 
-/** IDs of the running Docker containers, or null without Docker. */
-const runningContainers = (): string[] | null => {
-  const r = spawnSync('docker', ['ps', '-q', '--no-trunc'], { encoding: 'utf8', timeout: 15_000 });
-  return r.status === 0 ? r.stdout.split('\n').filter(Boolean) : null;
-};
-
-/** Live processes, other than this one, whose command line names the run folder or whose working folder is in it. */
-export const processesIn = (work: string): { pid: number; command: string }[] => {
-  const inside = (p: string) => p === work || p.startsWith(work + '/');
-  const found = new Map<number, string>();
-  const rows = execFileSync('ps', ['-A', '-ww', '-o', 'pid=,command='], { encoding: 'utf8', maxBuffer: 1 << 26 })
-    .split('\n')
-    .map((l) => l.trim().match(/^(\d+)\s+(.*)$/))
-    .filter((m): m is RegExpMatchArray => m !== null);
-  const commands = new Map(rows.map(([, pid, command]) => [Number(pid), command!]));
-  for (const [pid, command] of commands) if (command.includes(work)) found.set(pid, command);
-  if (platform() === 'linux') {
-    for (const pid of commands.keys()) {
-      try {
-        if (inside(readlinkSync(`/proc/${pid}/cwd`))) found.set(pid, commands.get(pid)!);
-      } catch {}
+  const rootsFile = join(dir, `${name}-roots.pem`);
+  if (roots.trim()) writeFileSync(rootsFile, roots);
+  const yaml = join(dir, `${name}.yaml`);
+  writeFileSync(
+    yaml,
+    [
+      'minimumLimaVersion: 2.0.0',
+      'base:',
+      '- template:docker-rootful',
+      `cpus: ${recipe.cpus}`,
+      `memory: "${recipe.memory}GiB"`,
+      `disk: "${recipe.disk}GiB"`,
+      'mounts: []',
+      ...(roots.trim() ? ['caCerts:', '  files:', `  - ${JSON.stringify(rootsFile)}`] : []),
+      // The workspace server's socket comes to the host; no port the run opens does. Not under the instance's `sock/`, which a
+      // clone gets with no permissions at all (Lima 2.2).
+      'portForwards:',
+      `- guestSocket: ${JSON.stringify(GUEST_SOCKET)}`,
+      '  hostSocket: "{{.Dir}}/ws.sock"',
+      '- guestPortRange: [1, 65535]',
+      '  ignore: true',
+      '',
+    ].join('\n'),
+  );
+  const bakeLog = join(dir, `${name}.log`);
+  log(`▶ baking the workspace template ${name} (once per recipe; the log is ${bakeLog})`);
+  try {
+    limaOk(['create', '--tty=false', '--name', name, '--mount-none', yaml], 'creating the template VM');
+    limaOk(['start', '--tty=false', name], 'starting the template VM', { timeout: 3_600_000 });
+    const node = process.versions.node;
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const base = [
+      'set -euxo pipefail',
+      'export DEBIAN_FRONTEND=noninteractive',
+      'sudo apt-get update -q && sudo apt-get install -y -q git curl jq ca-certificates xz-utils lsof',
+      `curl -fsSL https://nodejs.org/dist/v${node}/node-v${node}-linux-${arch}.tar.xz | sudo tar -xJ -C /usr/local --strip-components=1`,
+      'sudo corepack enable',
+      `echo NODE_EXTRA_CA_CERTS=${SYSTEM_BUNDLE} | sudo tee -a /etc/environment`,
+    ].join('\n');
+    for (const [what, script] of [
+      ['the base', base],
+      ['the project', recipe.provision],
+    ] as const) {
+      if (!script.trim()) continue;
+      log(`  provisioning ${what}`);
+      const r = lima(['shell', '--workdir', '/', name, '--', 'bash', '-lc', `export NODE_EXTRA_CA_CERTS=${SYSTEM_BUNDLE}; bash -s`], {
+        input: script,
+        timeout: 3_600_000,
+      });
+      writeFileSync(bakeLog, `## ${what}\n${r.stdout}\n${r.stderr}\n`, { flag: 'a' });
+      if (r.status !== 0) throw new Error(`provisioning ${what} failed (exit ${r.status}); see ${bakeLog}`);
     }
-  } else {
-    const lsof = spawnSync('lsof', ['-a', '-d', 'cwd', '-Fpn', '-u', String(process.getuid?.() ?? '')], { encoding: 'utf8', maxBuffer: 1 << 26 });
-    let pid = 0;
-    for (const line of (lsof.stdout ?? '').split('\n')) {
-      if (line.startsWith('p')) pid = Number(line.slice(1));
-      else if (line.startsWith('n') && inside(line.slice(1)) && commands.has(pid)) found.set(pid, commands.get(pid)!);
-    }
+    limaOk(['stop', name], 'stopping the template VM');
+    writeFileSync(join(instanceDir(name), 'sdlc-baked'), new Date().toISOString() + '\n');
+  } catch (e) {
+    lima(['delete', '-f', name]);
+    throw e;
   }
-  found.delete(process.pid);
-  return [...found].map(([pid, command]) => ({ pid, command }));
-};
-
-export interface Refusal {
-  path: string;
-  access: string;
-}
-
-/** The accesses the sandbox refused its own process, from the diagnostics nono prints when that process ends. */
-export const parseDenials = (stderr: string): Refusal[] | null => {
-  const start = stderr.lastIndexOf('{\n  "session"');
-  if (start < 0) return null;
-  let depth = 0;
-  for (let i = start; i < stderr.length; i++) {
-    if (stderr[i] === '{') depth++;
-    else if (stderr[i] === '}' && --depth === 0) {
-      try {
-        const session = JSON.parse(stderr.slice(start, i + 1)).session as { denials?: Refusal[] };
-        return (session.denials ?? []).map(({ path, access }) => ({ path, access }));
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
+  log(`▶ template ${name} is baked`);
+  return name;
 };
 
 export interface Workspace {
-  /** One line for the evidence page: the workspace is confined, and what it may reach beyond its folder. */
+  /** One line for the evidence page: where the commands ran, and what of the host they could read. */
   summary: string;
-  /** The same for the console, naming how it is confined. */
+  /** The same for the console, naming the VM. */
   banner: string;
   /** The shell the verifier's Bash tool runs through, for CLAUDE_CODE_SHELL_PREFIX. */
   shell: string;
   /** Where every command is logged, one JSON line each (workspace-shell.mts's LoggedCommand). */
   commandLog: string;
-  /** The run's own home, inside the run folder. */
-  home: string;
-  /** The pid of the process that holds the workspace, to sample its environments. */
-  pid: number;
-  /** Stops everything the run started; returns what the sandbox refused its server (null when unknown) and what was left running. */
-  close: () => Promise<{ refused: Refusal[] | null; stopped: string[]; stillRunning: string[] }>;
+  /** The exported files the run changed, compared with the export. */
+  changed: () => string[];
+  /** Stops and deletes the VM, with everything the run started; returns what it stopped and anything it could not. */
+  close: () => Promise<{ stopped: string[]; stillRunning: string[] }>;
 }
 
-export interface Prepared {
-  work: string;
-  runtimeDir: string;
-  stateDir: string;
-  summary: string;
-  banner: string;
-  home: string;
-  sockets: string;
-  /** The command that runs `argv` in the workspace, with the run's environment and nothing else of the launcher's. */
-  wrap: (argv: string[]) => string[];
-}
-
-/**
- * Builds the run's home in `<work>/.verify` and the sandbox profile in `stateDir`, a folder the workspace can't reach. `env`
- * is the whole environment commands get, on top of the run's home and temp: nothing else of the launcher's passes in. `deny`
- * names folders the workspace must not reach wherever they are.
- */
-export const prepareWorkspace = ({
-  work,
-  runtimeDir,
-  skillDir,
-  stateDir,
-  env,
-  deny = [],
-}: {
-  work: string;
-  runtimeDir: string;
-  skillDir: string;
-  stateDir: string;
-  env: Record<string, string>;
-  deny?: string[];
-}): Prepared => {
-  const owner = homedir();
-  const verifyDir = join(work, '.verify');
-  const home = join(verifyDir, 'home');
-  const tmp = join(verifyDir, 'tmp');
-  const sockets = join(verifyDir, 'ws');
-  for (const d of [home, tmp, sockets]) mkdirSync(d, { recursive: true });
-
-  const toolchains = TOOLCHAINS.filter((t) => existsSync(join(owner, t)));
-  for (const t of toolchains) {
-    mkdirSync(dirname(join(home, t)), { recursive: true });
-    symlinkSync(join(owner, t), join(home, t));
+/** The environment a command gets in the VM: the launcher's, without what names the host, with the proxy reached from the VM. */
+const guestEnv = (env: Record<string, string>, caches: Cache[], verifyDir: string): Record<string, string> => {
+  const out: Record<string, string> = { LANG: 'C.UTF-8' };
+  for (const [k, v] of Object.entries(env)) {
+    if (['PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR'].includes(k)) continue;
+    out[k] = /^(https?|all)_proxy$/i.test(k) ? v.replace(/@127\.0\.0\.1:/, '@host.lima.internal:') : v;
   }
-  const caches = CACHE_ENTRIES.filter((c) => existsSync(join(owner, c.path)));
-  for (const c of caches) {
-    mkdirSync(join(home, c.path), { recursive: true });
-    for (const entry of readdirSync(join(owner, c.path)).filter((e) => !c.own.includes(e))) symlinkSync(join(owner, c.path, entry), join(home, c.path, entry));
-  }
-  const readable = [...toolchains, ...caches.map((c) => c.path)];
-  for (const s of SETTINGS.filter((s) => existsSync(join(owner, s)))) {
-    mkdirSync(dirname(join(home, s)), { recursive: true });
-    cpSync(join(owner, s), join(home, s));
-  }
-  writeFileSync(join(verifyDir, 'playwright.json'), JSON.stringify(PLAYWRIGHT, null, 2) + '\n');
-
-  const docker = dockerSocket();
-  const devCert = makeDevCert(join(verifyDir, 'dev-cert'));
-  const systemToolchains = SYSTEM_TOOLCHAINS.filter((p) => existsSync(p));
-  // The server runs on the launcher's own Node, which may live outside every toolchain above.
-  const node = dirname(dirname(process.execPath));
-  const profile = {
-    meta: { name: 'verify-workspace' },
-    extends: 'default',
-    groups: { include: ['node_runtime'] },
-    workdir: { access: 'readwrite' },
-    // Commands may manage and inspect the processes the workspace started, never the launcher's, the proxy's or the verifier's.
-    security: { signal_mode: 'allow_same_sandbox', process_info_mode: 'allow_same_sandbox' },
-    filesystem: {
-      read: [...new Set([skillDir, runtimeDir, node, ...readable.map((t) => join(owner, t)), ...systemToolchains])],
-      read_file: SYSTEM_FILES.map((f) => join(owner, f)).filter((f) => existsSync(f)),
-      ...(docker ? { unix_socket: [docker] } : {}),
-      // macOS lets every sandboxed process read /private/tmp, where Claude Code keeps its sessions' files, and the per-user
-      // temp under /var/folders, which stays because macOS tools write there whatever TMPDIR says: so the folders in `deny`
-      // (the source repo, Claude Code's config) are refused even when they live in a temp. Linux grants /tmp write-only.
-      ...(platform() === 'darwin' ? { deny: ['/private/tmp', ...deny] } : {}),
-    },
-    platform_overrides: { macos: { unsafe_macos_seatbelt_rules: SEATBELT } },
-  };
-  const profileFile = join(stateDir, 'workspace-profile.json');
-  writeFileSync(profileFile, JSON.stringify(profile, null, 2) + '\n');
-
-  const commandEnv: Record<string, string> = {
-    ...env,
-    HOME: home,
-    TMPDIR: tmp,
-    // The shell checks the folder it inherits as its working directory, and the launcher's lies outside the workspace.
-    PWD: work,
-    XDG_CONFIG_HOME: join(home, '.config'),
-    XDG_DATA_HOME: join(home, '.local/share'),
-    XDG_CACHE_HOME: join(home, '.cache'),
-    XDG_STATE_HOME: join(home, '.local/state'),
-    PLAYWRIGHT_MCP_CONFIG: join(verifyDir, 'playwright.json'),
-    DOTNET_CLI_TELEMETRY_OPTOUT: '1',
-    DOTNET_NOLOGO: '1',
-    ...(devCert ? { ASPNETCORE_Kestrel__Certificates__Default__Path: devCert.cert, ASPNETCORE_Kestrel__Certificates__Default__KeyPath: devCert.key } : {}),
-    ...(docker ? { DOCKER_HOST: `unix://${docker}` } : {}),
-  };
-  // nono keeps its own state under the owner's home, so the run's environment is set inside the sandbox, not around it.
-  const wrap = (argv: string[]) => [
-    'nono',
-    'run',
-    '-s',
-    '--no-rollback',
-    '--diagnostics-json',
-    '--profile',
-    profileFile,
-    '--workdir',
-    work,
-    '--allow-cwd',
-    '--allow-unix-socket-dir-bind',
-    sockets,
-    '--',
-    'env',
-    '-i',
-    ...Object.entries(commandEnv).map(([k, v]) => `${k}=${v}`),
-    ...argv,
-  ];
-
-  const reach = [
-    'the skill and runtime folders',
-    readable.length || systemToolchains.length ? `toolchains read-only (${[...readable.map((t) => `~/${t}`), ...systemToolchains].join(', ')})` : null,
-    docker ? `the Docker socket` : null,
-  ].filter(Boolean);
-  const summary = `Workspace: local, confined; reads beyond the run folder: ${reach.join(', ')}.`;
-  const banner = `Workspace: local, confined by nono (${platform() === 'darwin' ? 'Seatbelt' : 'Landlock'}); beyond its own folder it reads only ${reach.join(', ')}${docker ? ` (${docker})` : ''}.`;
-  return { work, runtimeDir, stateDir, summary, banner, home, sockets, wrap };
+  for (const k of TRUST_VARS) out[k] = SYSTEM_BUNDLE;
+  for (const c of caches) Object.assign(out, c.env);
+  out.PLAYWRIGHT_MCP_CONFIG = join(verifyDir, 'playwright.json');
+  return out;
 };
 
-/**
- * Starts the workspace's server in the sandbox, and writes the verifier's shell into the state folder. Throws when the
- * workspace doesn't start.
- */
-export const openWorkspace = async (prepared: Prepared): Promise<Workspace> => {
-  const { work, runtimeDir, stateDir, summary, banner, home, sockets, wrap } = prepared;
-  const socket = join(sockets, 's');
-  const containersBefore = runningContainers();
-  const [cmd, ...args] = wrap([process.execPath, join(runtimeDir, 'workspace-server.mts'), socket]);
-  const server = spawn(cmd!, args, { cwd: work, env: { PATH: process.env.PATH ?? '', HOME: homedir() }, stdio: ['ignore', 'pipe', 'pipe'] });
-  let stderr = '';
-  server.stderr.on('data', (b: Buffer) => (stderr += b.toString()));
-  const killServer = () => server.kill('SIGKILL');
-  process.once('exit', killServer);
-  await new Promise<void>((done, fail) => {
-    const timer = setTimeout(() => fail(new Error(`the workspace did not start within 30s: ${stderr.trim().slice(-600)}`)), 30_000);
-    server.stdout.on('data', (b: Buffer) => b.toString().includes('workspace ready') && (clearTimeout(timer), done()));
-    server.once('exit', (code) => (clearTimeout(timer), fail(new Error(`the workspace exited (${code}) before it was ready: ${stderr.trim().slice(-600)}`))));
+const reachable = (socket: string) =>
+  new Promise<boolean>((done) => {
+    const c = connect(socket);
+    c.once('connect', () => (c.destroy(), done(true)));
+    c.once('error', () => done(false));
   });
 
-  const commandLog = join(stateDir, 'commands.jsonl');
-  writeFileSync(commandLog, '');
-  const shell = join(stateDir, 'shell');
-  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
-  const shellArgs = ['--socket', socket, '--log', commandLog, '--workspace', 'local', '--work', work].map(q).join(' ');
-  writeFileSync(shell, `#!/bin/sh\nexec ${q(process.execPath)} ${q(join(runtimeDir, 'workspace-shell.mts'))} ${shellArgs} "$@"\n`);
-  chmodSync(shell, 0o755);
+/**
+ * Clones `template` into a VM for the run, moves the export in `work` onto its disk (the host keeps only `.verify`), mounts
+ * each cache with a layer of the run's own over it, and starts the workspace server. `env` is the whole environment commands
+ * get; `trust`, when set, is a root the VM must trust (the credential proxy's). Throws when the workspace doesn't start.
+ */
+export const openWorkspace = async ({
+  template,
+  work,
+  stateDir,
+  pluginDir,
+  runtimeDir,
+  caches,
+  env,
+  trust,
+  serve = true,
+}: {
+  template: string;
+  work: string;
+  stateDir: string;
+  pluginDir: string;
+  runtimeDir: string;
+  caches: (Cache & { path: string })[];
+  env: Record<string, string>;
+  trust?: string;
+  serve?: boolean;
+}): Promise<Workspace & { name: string }> => {
+  const verifyDir = join(work, '.verify');
+  mkdirSync(verifyDir, { recursive: true });
+  writeFileSync(join(verifyDir, 'playwright.json'), JSON.stringify(PLAYWRIGHT, null, 2) + '\n');
+  const name = `sdlc-run-${randomBytes(4).toString('hex')}`;
+  const mounts = [`${verifyDir}:w`, pluginDir, ...caches.map((c) => c.path)].flatMap((m) => ['--mount-only', m]);
+  limaOk(['clone', '--tty=false', template, name, ...mounts], 'cloning the template');
+  const remove = () => lima(['delete', '-f', name], { timeout: 180_000 });
+  try {
+    limaOk(['start', '--tty=false', name], 'starting the VM', { timeout: 600_000 });
+    const setup = [
+      'set -e',
+      `sudo mkdir -p ${GUEST_RUN} ${q(work)} && sudo chown "$USER" ${GUEST_RUN} ${q(work)}`,
+      ...caches.flatMap((c, i) => [
+        `sudo mkdir -p /var/lib/sdlc-cache/${i}/upper /var/lib/sdlc-cache/${i}/work ${q(c.guest)}`,
+        `sudo mount -t overlay overlay -o lowerdir=${q(c.path)},upperdir=/var/lib/sdlc-cache/${i}/upper,workdir=/var/lib/sdlc-cache/${i}/work,metacopy=on,redirect_dir=on ${q(c.guest)}`,
+        `sudo chown "$USER" ${q(c.guest)}`,
+      ]),
+      ...(trust ? [`sudo cp ${q(trust)} /usr/local/share/ca-certificates/sdlc-run.crt && sudo update-ca-certificates >/dev/null`] : []),
+    ].join('\n');
+    limaOk(['shell', '--workdir', '/', name, '--', 'bash', '-s'], 'preparing the VM', { input: setup });
 
-  const close = async () => {
-    process.off('exit', killServer);
-    if (server.exitCode === null) {
-      const exited = new Promise((done) => server.once('exit', done));
+    // The export goes onto the VM's own disk; the host keeps only the run's .verify folder, which the VM shares back.
+    // macOS's tar would add its extended attributes as `._` files; neither side's tar needs them.
+    const pushed = spawnSync(
+      'bash',
+      [
+        '-c',
+        'set -o pipefail; COPYFILE_DISABLE=1 tar -C "$1" --no-xattrs --exclude ./.verify -cf - . | limactl shell --workdir / "$2" -- tar --warning=no-unknown-keyword -xf - -C "$1"',
+        '_',
+        work,
+        name,
+      ],
+      { encoding: 'utf8', maxBuffer: 1 << 26 },
+    );
+    if (pushed.status !== 0) throw new Error(`moving the export into the VM failed: ${pushed.stderr.trim().slice(-300)}`);
+    for (const entry of readdirSync(work)) if (entry !== '.verify') rmSync(join(work, entry), { recursive: true, force: true });
+    limaOk(
+      [
+        'shell',
+        '--workdir',
+        work,
+        name,
+        '--',
+        'bash',
+        '-c',
+        `find . -path ./.verify -prune -o -type f -print0 | xargs -0 -r sha1sum > ${GUEST_RUN}/before.sha1`,
+      ],
+      'listing the export',
+    );
+
+    const commandLog = join(stateDir, 'commands.jsonl');
+    writeFileSync(commandLog, '');
+    const vars = guestEnv(env, caches, verifyDir);
+    limaOk(['shell', '--workdir', '/', name, '--', 'bash', '-c', `cat > ${GUEST_RUN}/env`], 'writing the environment', {
+      input: Object.entries(vars)
+        .map(([k, v]) => `export ${k}=${q(v)}`)
+        .join('\n'),
+    });
+
+    const caching = caches.length ? `, caches read-only (${caches.map((c) => c.host).join(', ')})` : '';
+    const summary = `Workspace: a local Linux VM, fresh for this run; it shares with the host only the run's evidence folder and, read-only, the skill and runtime folders${caching}.`;
+    const banner = `Workspace: Lima VM ${name}, cloned from ${template}; it holds the export on its own disk and shares only the run's .verify, the plugin folder read-only${caching}.`;
+    const changed = () =>
+      lima(['shell', '--workdir', work, name, '--', 'bash', '-c', `sha1sum -c --quiet ${GUEST_RUN}/before.sha1 2>/dev/null; true`])
+        .stdout.split('\n')
+        .map((l) => l.match(/^\.\/(.+): FAILED/)?.[1])
+        .filter((p): p is string => Boolean(p));
+
+    if (!serve) {
+      const close = async () => (remove(), { stopped: [`VM ${name}`], stillRunning: [] });
+      return { name, summary, banner, shell: '', commandLog, changed, close };
+    }
+
+    const server = spawn(
+      'limactl',
+      [
+        'shell',
+        '--workdir',
+        work,
+        name,
+        '--',
+        'bash',
+        '-c',
+        `set -a; . ${GUEST_RUN}/env; set +a; exec node ${q(join(runtimeDir, 'workspace-server.mts'))} ${GUEST_SOCKET}`,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let stderr = '';
+    server.stderr.on('data', (b: Buffer) => (stderr += b.toString()));
+    const killServer = () => server.kill('SIGKILL');
+    process.once('exit', killServer);
+    await new Promise<void>((done, fail) => {
+      const timer = setTimeout(() => fail(new Error(`the workspace did not start within 60s: ${stderr.trim().slice(-600)}`)), 60_000);
+      server.stdout.on('data', (b: Buffer) => b.toString().includes('workspace ready') && (clearTimeout(timer), done()));
+      server.once('exit', (code) => (clearTimeout(timer), fail(new Error(`the workspace exited (${code}) before it was ready: ${stderr.trim().slice(-600)}`))));
+    });
+    const socket = join(instanceDir(name), 'ws.sock');
+    const deadline = Date.now() + 30_000;
+    while (!(await reachable(socket))) {
+      if (Date.now() > deadline) throw new Error(`the workspace's socket did not reach the host at ${socket}`);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    const shell = join(stateDir, 'shell');
+    const shellArgs = ['--socket', socket, '--log', commandLog, '--workspace', 'local-vm'].map(q).join(' ');
+    writeFileSync(shell, `#!/bin/sh\nexec ${q(process.execPath)} ${q(join(runtimeDir, 'workspace-shell.mts'))} ${shellArgs} "$@"\n`);
+    chmodSync(shell, 0o755);
+
+    const close = async () => {
+      process.off('exit', killServer);
       server.kill('SIGTERM');
-      const timer = setTimeout(killServer, 15_000);
-      await exited;
-      clearTimeout(timer);
-    }
-    const stopped: string[] = [];
-    const containersAfter = runningContainers();
-    const started = containersBefore && containersAfter ? containersAfter.filter((id) => !containersBefore.includes(id)) : [];
-    if (started.length) {
-      spawnSync('docker', ['stop', ...started], { stdio: 'ignore', timeout: 120_000 });
-      stopped.push(`${started.length} container${started.length === 1 ? '' : 's'}`);
-    }
-    const strays = processesIn(work);
-    for (const { pid } of strays) {
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch {}
-    }
-    if (strays.length) {
-      await new Promise((done) => setTimeout(done, 3_000));
-      for (const { pid } of processesIn(work)) {
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {}
-      }
-      stopped.push(
-        `${strays.length} process${strays.length === 1 ? '' : 'es'} (${[...new Set(strays.map((s) => basename(s.command.split(' ')[0]!)))].join(', ')})`,
-      );
-    }
-    const stillRunning = [
-      ...processesIn(work).map((s) => `process ${s.pid} (${s.command.slice(0, 120)})`),
-      ...((started.length ? runningContainers() : [])?.filter((id) => started.includes(id)).map((id) => `container ${id.slice(0, 12)}`) ?? []),
-    ];
-    return { refused: parseDenials(stderr), stopped, stillRunning };
-  };
-  return { summary, banner, shell, commandLog, home, pid: server.pid!, close };
+      const r = remove();
+      return r.status === 0 ? { stopped: [`VM ${name}`], stillRunning: [] } : { stopped: [], stillRunning: [`VM ${name} (${r.stderr.trim().slice(-200)})`] };
+    };
+    return { name, summary, banner, shell, commandLog, changed, close };
+  } catch (e) {
+    remove();
+    throw e;
+  }
 };

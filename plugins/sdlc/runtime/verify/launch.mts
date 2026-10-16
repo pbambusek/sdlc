@@ -3,16 +3,16 @@
  * and prints where the evidence page is. Run it from anywhere inside the repo:
  *   node <runtime dir>/launch.mts <spec path at the target> [ref]
  *   node <runtime dir>/launch.mts --claims <file> [--source <label>] [ref]
- *   node <runtime dir>/launch.mts --export-only [ref]   (setup: export and copy, print the folder and a shell in its workspace, start no session)
+ *   node <runtime dir>/launch.mts --export-only [ref]   (setup: export and copy into a workspace VM, print how to open a shell in it, start no session)
  *   options: --copy <path> (repeatable), --slug <name>, --interactive
  * The page lands in <repo>/.verify/<slug>/<timestamp>-<commit>/ and opens; VERIFY_NO_OPEN=1 keeps it closed.
  *
  * What keeps the verifier honest:
  *   - the target is exported with `git archive` into a new run folder: no history, no diff, no untracked files;
- *   - every command the verifier runs executes in the run's workspace (workspace.mts), confined to its folder, a home of its
- *     own and the toolchains it builds with: the source repo, every session's transcripts and the owner's keys and logins are
- *     not there for it. Each command is logged with its exit status. A run the workspace refused anything is broken: it gets
- *     no page. Without a workspace, no run starts;
+ *   - every command the verifier runs executes in the run's workspace (workspace.mts), a fresh Linux VM that holds the export on
+ *     its own disk and shares with the host only the run's .verify folder, the plugin's folder and the caches VERIFY.md declares,
+ *     read-only: the source repo, every session's transcripts and the owner's keys and logins are not there for it. Each
+ *     command is logged with its exit status. Without a workspace, no run starts;
  *   - the verifier itself stays outside the workspace, with its own login and transcript, and loads nothing of the owner's
  *     Claude Code setup (memory, instructions, plugins, skills, connectors). Its only tools are running a command in the
  *     workspace and viewing an image the workspace saved; anything else is refused without asking;
@@ -31,10 +31,10 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parseArgs } from './args.mts';
-import { audit, snapshot } from './audit.mts';
-import { findValues, findValuesInProcesses, parseDeclaration, readCredentials, startProxy } from './credentials.mts';
+import { audit } from './audit.mts';
+import { findValues, parseDeclaration, readCredentials, startProxy } from './credentials.mts';
 import { applyInstructions, readInstructions, type Instructions } from './instructions.mts';
-import { openWorkspace, prepareWorkspace, RUNS, workspaceMissing } from './workspace.mts';
+import { cacheFolder, ensureTemplate, openWorkspace, parseRecipe, RUNS, workspaceMissing, type Recipe } from './workspace.mts';
 import type { LoggedCommand } from './workspace-shell.mts';
 
 const fail = (message: string): never => {
@@ -96,6 +96,13 @@ try {
 } catch (e) {
   noRun((e as Error).message);
 }
+// What the workspace VM installs and which host caches it reads come from the same VERIFY.md.
+let recipe: Recipe;
+try {
+  recipe = parseRecipe(verifyMd);
+} catch (e) {
+  noRun((e as Error).message);
+}
 
 let claims = '';
 let source = 'none';
@@ -135,10 +142,17 @@ const stateDir = realpathSync(mkdtempSync(join(RUNS, 'l-')));
 // The skill's method and assets sit beside the runtime in the plugin; the verifier and the workspace read both.
 const runtimeDir = realpathSync(import.meta.dirname);
 const skillDir = realpathSync(resolve(runtimeDir, '../../skills/verify'));
+const pluginDir = realpathSync(resolve(runtimeDir, '../..'));
 // The owner's Claude Code keeps session transcripts and auto-memory under its config dir's `projects/`.
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
-// The workspace never grants these, but a temp it may read could hold them, so they are refused wherever they are.
-const deny = [...new Set([repo, mainCheckout, configDir].filter((p) => existsSync(p)).map((p) => realpathSync(p)))];
+// A declared cache is a tool's packages: one that reaches how the code was written stops the launch.
+const forbidden = [repo, mainCheckout, configDir].filter((p) => existsSync(p)).map((p) => realpathSync(p));
+const caches = recipe!.caches.flatMap((c) => {
+  const folder = cacheFolder(c.host, forbidden);
+  if (folder.outcome === 'shared') return [{ ...c, path: folder.path }];
+  if (folder.outcome === 'missing') return (console.warn(`  cache: ${folder.reason}; the run goes without it`), []);
+  return noRun(`VERIFY.md Workspace: the cache ${folder.reason}`);
+});
 
 console.log(`▶ exporting ${ref} (${commit.slice(0, 12)}) to ${work}`);
 execFileSync('bash', ['-c', `git -C "$1" archive "$2" | tar -x -C "$3"`, '_', repo, commit, work], { stdio: 'inherit' });
@@ -147,23 +161,16 @@ for (const p of copies) {
   else console.warn(`  copy: ${p} is not in ${repo}; skipped`);
 }
 if (instructions) applyInstructions(work, instructions);
-const before = snapshot(work);
 
 const verifyDir = join(work, '.verify');
 mkdirSync(verifyDir, { recursive: true });
 writeFileSync(join(verifyDir, 'target.json'), JSON.stringify({ ref, commit, source, ranAt }, null, 2) + '\n');
 
-// Commands get this environment and nothing else of the launcher's: no login, key or token the owner's shell holds.
-const KEEP = ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TZ', 'USER', 'LOGNAME'];
-// A folder in /tmp (a tool's shim, such as Yarn's) can't be read from the workspace, so a command found there would be
-// refused; without it, the next folder on PATH answers.
-const inTmp = (p: string) => /^\/(private\/)?tmp(\/|$)/.test(p);
+// Commands get this environment and nothing else of the launcher's: no login, key or token the owner's shell holds. The VM
+// keeps its own PATH, home and locale.
+const KEEP = ['TERM', 'TZ'];
 const baseEnv: Record<string, string> = {
   ...Object.fromEntries(KEEP.flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))),
-  PATH: (process.env.PATH ?? '')
-    .split(':')
-    .filter((p) => p && !inTmp(p))
-    .join(':'),
   // One shell for every verifier, whatever the owner's login shell is.
   SHELL: execFileSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim(),
   GIT_CEILING_DIRECTORIES: dirname(work),
@@ -172,14 +179,27 @@ const baseEnv: Record<string, string> = {
 
 if (exportOnly) {
   console.log(`exported ${work}`);
-  // Setup tries the project's commands in the same workspace a run gets.
+  // Setup tries the project's commands in the same workspace a run gets, and leaves the VM for the person to delete.
   if (!workspaceMissing()) {
-    const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
-    console.log(
-      `a shell in its workspace: cd ${quote(work)} && ${prepareWorkspace({ work, runtimeDir, skillDir, stateDir, deny, env: baseEnv }).wrap(['bash']).map(quote).join(' ')}`,
-    );
+    try {
+      const template = ensureTemplate({ recipe: recipe!, log: (line) => console.log(line) });
+      const ws = await openWorkspace({ template, work, stateDir, pluginDir, runtimeDir, caches, env: baseEnv, serve: false });
+      console.log(`a shell in its workspace: limactl shell --workdir ${work} ${ws.name}`);
+      console.log(`when done: limactl delete -f ${ws.name}`);
+    } catch (e) {
+      fail(`✖ the workspace can't be set up: ${(e as Error).message}`);
+    }
   }
   process.exit(0);
+}
+
+// A run takes minutes, and a machine that sleeps meanwhile pauses its VM and stalls its commands.
+if (process.platform === 'darwin') spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).unref();
+let template = '';
+try {
+  template = ensureTemplate({ recipe: recipe!, log: (line) => console.log(line) });
+} catch (e) {
+  noRun(`the workspace template can't be baked: ${(e as Error).message}`);
 }
 
 const credentialLog = join(stateDir, 'credential-requests.jsonl');
@@ -197,9 +217,16 @@ if (proxy) console.log('▶ credential proxy (nono) started; the workspace holds
 
 let workspace;
 try {
-  workspace = await openWorkspace(
-    prepareWorkspace({ work, runtimeDir, skillDir, stateDir, deny, env: (proxy?.env as Record<string, string> | undefined) ?? baseEnv }),
-  );
+  workspace = await openWorkspace({
+    template,
+    work,
+    stateDir,
+    pluginDir,
+    runtimeDir,
+    caches,
+    env: (proxy?.env as Record<string, string> | undefined) ?? baseEnv,
+    trust: proxy ? join(verifyDir, 'proxy-ca.pem') : undefined,
+  });
 } catch (e) {
   await proxy?.stop();
   noRun(`the run's workspace can't be set up on this machine: ${(e as Error).message}`);
@@ -264,18 +291,11 @@ const claudeArgs = [
 ];
 
 // The proxy runs in this process, so the session is never spawned synchronously: a blocked event loop would stall every request.
-let sampled = 0;
-const processLeaks = new Set<string>();
 const sample = () => {
-  if (proxy) {
-    proxy.collect();
-    // The verifier cites the log; the copy in the state folder is the one the page keeps.
-    if (existsSync(credentialLog)) copyFileSync(credentialLog, join(verifyDir, 'credential-requests.jsonl'));
-  }
-  if (!scanned.length) return;
-  const { hits, processes } = findValuesInProcesses({ values: scanned, rootPid: ws.pid });
-  sampled = Math.max(sampled, processes);
-  for (const h of hits) processLeaks.add(h);
+  if (!proxy) return;
+  proxy.collect();
+  // The verifier cites the log; the copy in the state folder is the one the page keeps.
+  if (existsSync(credentialLog)) copyFileSync(credentialLog, join(verifyDir, 'credential-requests.jsonl'));
 };
 if (interactive) {
   console.log('▶ starting an interactive verification session (approve the folder trust prompt)');
@@ -290,7 +310,6 @@ if (interactive) {
     env: childEnv,
     stdio: ['ignore', 'pipe', 'inherit'],
   });
-  // The workspace's processes are sampled while they live, to show no environment in it holds a real value.
   const timer = setInterval(sample, 15_000);
   session.once('close', () => clearInterval(timer));
   // One line per step, so the terminal shows the session at work.
@@ -312,43 +331,27 @@ if (interactive) {
 }
 sample();
 
-// Whatever the run left running is stopped: the workspace's processes and the containers that appeared during it.
+// The files are compared before the VM goes; deleting it stops whatever the run left running, containers included.
+const changed = ws.changed();
 const closed = await ws.close();
-if (closed.stopped.length) console.log(`▶ stopped what the run left running: ${closed.stopped.join(', ')}`);
+if (closed.stopped.length) console.log(`▶ deleted the workspace (${closed.stopped.join(', ')}) with everything the run started`);
 // Once the workspace is gone, its proxy token and placeholders reach nothing.
 await proxy?.stop();
 if (proxy) console.log('▶ credential proxy (nono) stopped');
 
 console.log('▶ auditing the session');
 const transcript = join(configDir, 'projects', work.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
-const result = audit({
-  transcript: existsSync(transcript) ? transcript : null,
-  work,
-  home: ws.home,
-  repos: [repo, mainCheckout],
-  allowed: [skillDir, runtimeDir],
-  before,
-});
+const result = audit({ transcript: existsSync(transcript) ? transcript : null, changed });
 
 const commands: LoggedCommand[] = readFileSync(ws.commandLog, 'utf8')
   .split('\n')
   .filter(Boolean)
   .map((l) => JSON.parse(l));
-// What the workspace refused: each command's refusals, seen in its output, and those of the workspace's own process.
-const refused = new Map<string, string>();
-for (const c of commands) for (const r of c.refused) if (!refused.has(r.path)) refused.set(r.path, `${c.command.slice(0, 80)}: ${r.line}`);
-for (const r of closed.refused ?? []) if (!refused.has(r.path)) refused.set(r.path, `the workspace itself: ${r.access.toLowerCase()}`);
-result.workspace = [
-  ws.summary,
-  `Commands: ${commands.length} ran in the workspace, each logged with its exit status; it refused ${refused.size ? `${refused.size} access${refused.size === 1 ? '' : 'es'}` : 'none'}.`,
-  ...(closed.stopped.length ? [`Still running when the session ended, stopped by the launcher: ${closed.stopped.join(', ')}.`] : []),
-];
+result.workspace = [ws.summary, `Commands: ${commands.length} ran in the workspace, each logged with its exit status.`];
 
+// A real value reaches the workspace only in a response from a declared host; the transcript is where it would be kept.
 const leaks = scanned.length
-  ? [
-      ...findValues({ values: scanned, root: work, texts: existsSync(transcript) ? { 'the session transcript': readFileSync(transcript, 'utf8') } : {} }),
-      ...processLeaks,
-    ]
+  ? findValues({ values: scanned, texts: existsSync(transcript) ? { 'the session transcript': readFileSync(transcript, 'utf8') } : {} })
   : [];
 const requests = existsSync(credentialLog) ? readFileSync(credentialLog, 'utf8').split('\n').filter(Boolean).length : 0;
 result.credentials = [
@@ -361,7 +364,7 @@ result.credentials = [
     ? [
         leaks.length
           ? `Credential check: VIOLATED, a real value appeared: ${leaks.join('; ')}. Rotate it.`
-          : `Credential check: clean, no real value in the run folder, the session transcript, or the environments of ${sampled} sampled workspace process${sampled === 1 ? '' : 'es'}.`,
+          : 'Credential check: clean, no real value in the session transcript.',
       ]
     : []),
 ];
@@ -375,21 +378,10 @@ const keep = () => {
   console.error(`  the session transcript is ${transcript}`);
 };
 if (closed.stillRunning.length) {
-  console.error(`✖ the run left these running and they could not be stopped: ${closed.stillRunning.join('; ')}`);
+  console.error(`✖ the workspace could not be deleted: ${closed.stillRunning.join('; ')}`);
   keep();
   process.exit(1);
 }
-// A refused access means the run reached for something outside it, or the workspace lacks what the project needs: either
-// way it is broken, to be fixed, and it gets no page to act on.
-if (refused.size || closed.refused === null) {
-  if (refused.size) {
-    console.error(`✖ the workspace refused ${refused.size} access${refused.size === 1 ? '' : 'es'}; this run is broken and has no page:`);
-    for (const [path, where] of refused) console.error(`  ${path}  (${where})`);
-  } else console.error('✖ the workspace printed no report of what it refused, so the run cannot be trusted; it has no page');
-  keep();
-  process.exit(1);
-}
-
 if (!existsSync(join(verifyDir, 'evidence.json'))) {
   console.error('✖ the session wrote no evidence');
   keep();
@@ -417,7 +409,7 @@ if (built.status !== 0) {
   process.exit(1);
 }
 console.log(`✔ ${join(out, 'evidence.html')}`);
-// Everything a reader needs is in the page's folder; the run folder holds the run's own home and caches.
+// Everything a reader needs is in the page's folder.
 rmSync(work, { recursive: true, force: true });
 rmSync(stateDir, { recursive: true, force: true });
 

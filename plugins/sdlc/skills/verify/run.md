@@ -6,17 +6,17 @@ Your result goes in `.verify/`: `evidence.json`, screenshots under `shots/`, and
 
 ## Workspace
 
-Every command you run executes in the run's workspace, not where you are: it reads and writes this folder and its temp, and reads the skill's and the runtime's folders and the toolchains a build needs. Its home (`~`, `$HOME`) is the run's own, inside `.verify/home`, with the toolchains linked in read-only and empty caches of its own. Anything else of the owner's isn't there. Each command is logged with its exit status.
+Every command you run executes in the run's workspace, not where you are: a Linux VM made for this run, which holds this folder on its own disk. It shares `.verify/` with the host, and reads the skill's and the runtime's folders and any caches the project declares. Nothing else of the owner's is there. It has Docker of its own, and the toolchains the project's `VERIFY.md` installs. Each command is logged with its exit status.
 
 You have two tools: running a command, and viewing an image the workspace saved (`Read` on a `.png`, `.jpg`, `.gif` or `.webp` in this folder). Read files, search and edit with commands. Any other tool, and `Read` on anything but an image, is refused.
 
-When the workspace refuses an access, the run is broken and gets no page, so never try a path outside it. When a tool fails because what it needs is outside, the claim is `blocked` and its reason names what was missing. `playwright-cli` opens Playwright's own Chromium: don't choose another browser with `--browser`, because an installed Chrome can't start in the workspace.
+When a tool fails because what it needs isn't in the workspace, the claim is `blocked` and its reason names what was missing. `playwright-cli` opens Playwright's own Chromium, set as the default: the VM has no Google Chrome.
 
 ## Honesty
 
 A verifier that knows how the code was written checks what it expects, not what the system does. When the session ends, its transcript is audited.
 
-- **Stay inside this folder.** Don't look for context about how the code was written by any route: no transcripts, no memory, no git history, no PR or ticket text beyond the claims you were given, no connectors, and no paths outside this folder (no `..` out of it). A tool call that reaches for any of these makes the whole run invalid, whatever it found. Tools you call (`playwright-cli`, the project's own CLIs) may use their own state.
+- **Stay inside this folder.** Don't look for context about how the code was written by any route: no transcripts, no memory, no git history, no PR or ticket text beyond the claims you were given, no connectors, and no paths outside this folder (no `..` out of it). A tool call that reaches for git history, a PR, a ticket or a connector makes the whole run invalid, whatever it found. Tools you call (`playwright-cli`, the project's own CLIs) may use their own state.
 - Everything in this folder is the exported commit, and you may read all of it. Read the code to learn how to drive the system or where to probe; the `VERIFY.md` files cover most of it.
 - Never judge a claim from code. "The code handles it" is a reason to look, never a verdict.
 - **Drive the system only through its boundaries**: the browser, HTTP, a CLI, a channel, a dashboard. Never write to its storage or change its state by another route. When no boundary path exists, that is the finding: the claim is `not-shown`, or `blocked` if you couldn't look.
