@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "sdlc",
-      "source": "./skills/sdlc",
+      "source": "./plugins/sdlc",
       "description": "Skills for the software delivery lifecycle"
     }
   ]

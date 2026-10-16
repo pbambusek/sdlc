@@ -6,11 +6,49 @@ on:
 permissions:
   contents: read
 jobs:
+  # The marketplace, the plugin's skills and references, and the runtime's imports. Needs Node alone, no install.
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - run: node .github/check.mjs
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn lint
+      - run: yarn format:check
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      NONO_VERSION: 0.80.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # verify's workspace is confined by nono: Seatbelt on macOS, Landlock on Linux. Its tests skip without it.
+      - if: runner.os == 'macOS'
+        run: brew install nono
+      - if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o nono.deb "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/nono-cli_${NONO_VERSION}_amd64.deb"
+          sudo dpkg -i nono.deb
+      - run: nono --version
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn test
