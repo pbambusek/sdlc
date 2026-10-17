@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import type { Run } from '../src/archive.mts';
 import { readJournal, timeline, withRuns } from '../src/history.mts';
 import { buildComment, feedbackComment, launchComment, parkComment, readComments, reportComment, reviewComment } from '../src/ledger.mts';
@@ -31,16 +30,23 @@ const ledger = () =>
 
 test('a timeline lists every run with its outcome, across a park and an un-park', () => {
   const steps = timeline(ledger(), [t(45)], [{ stage: 'verify', label: 'verify launcher', state: 'running' }]);
-  assert.deepEqual(
-    steps.map((s) => `${s.label} ${s.outcome}`),
-    ['B1 built', 'V failed', 'review requested', 'F fix', 'B2 built', 'V blocked', 'parked parked', 'unparked unparked', 'V running'],
-  );
-  assert.equal(steps.find((s) => s.kind === 'park')?.note, 'Verify could not check every claim.');
+  expect(steps.map((s) => `${s.label} ${s.outcome}`)).toStrictEqual([
+    'B1 built',
+    'V failed',
+    'review requested',
+    'F fix',
+    'B2 built',
+    'V blocked',
+    'parked parked',
+    'unparked unparked',
+    'V running',
+  ]);
+  expect(steps.find((s) => s.kind === 'park')?.note).toBe('Verify could not check every claim.');
 });
 
 test('a run that has ended but is not recorded shows as ended, not running', () => {
   const steps = timeline(ledger(), [], []);
-  assert.equal(steps.at(-1)?.outcome, 'ended');
+  expect(steps.at(-1)?.outcome).toBe('ended');
 });
 
 test('runs pick up time and cost from the archive: builds by session, verify runs by commit in order', () => {
@@ -48,10 +54,10 @@ test('runs pick up time and cost from the archive: builds by session, verify run
   const run = (over: Partial<Run>): Run => ({ key: 'PROJ-1', stage: 'build', at: t(0), outcome: 'built', session: null, usage, ...over });
   const runs = [run({ session: 's1' }), run({ stage: 'verify', sha: A, outcome: 'failed', launcher: { code: 0, seconds: 600 } })];
   const steps = withRuns(timeline(ledger(), [], []), runs, {});
-  assert.equal(steps[0]!.turns, 7);
-  assert.equal(steps[0]!.seconds, 120);
-  assert.equal(steps.find((s) => s.kind === 'verify')!.seconds, 600);
-  assert.equal(steps.find((s) => s.label === 'B2')!.seconds, undefined);
+  expect(steps[0]!.turns).toBe(7);
+  expect(steps[0]!.seconds).toBe(120);
+  expect(steps.find((s) => s.kind === 'verify')!.seconds).toBe(600);
+  expect(steps.find((s) => s.label === 'B2')!.seconds).toBe(undefined);
 });
 
 const journal = [
@@ -72,16 +78,13 @@ const journal = [
 
 test('the journal reads as actions, errors and launcher exits, with idle ticks folded', () => {
   const j = readJournal(journal, Date.parse('2026-10-13T09:00:00Z'));
-  assert.deepEqual(
-    j.items.map((x) => ('quiet' in x ? `quiet ${x.quiet}` : `${x.kind} ${x.key} ${x.text}`)),
-    [
-      'notice PROJ-16 launcher exited with code 0 after 1140 s',
-      'error PROJ-9 launch build #1: gh: HTTP 502',
-      'action PROJ-16 launch verify #1 of 49b82ab',
-      'quiet 2',
-    ],
-  );
-  assert.deepEqual([j.ticks24h, j.actions24h, j.errors24h], [3, 1, 1]);
+  expect(j.items.map((x) => ('quiet' in x ? `quiet ${x.quiet}` : `${x.kind} ${x.key} ${x.text}`))).toStrictEqual([
+    'notice PROJ-16 launcher exited with code 0 after 1140 s',
+    'error PROJ-9 launch build #1: gh: HTTP 502',
+    'action PROJ-16 launch verify #1 of 49b82ab',
+    'quiet 2',
+  ]);
+  expect([j.ticks24h, j.actions24h, j.errors24h]).toStrictEqual([3, 1, 1]);
 });
 
 test('a launcher that exits with an error is an error', () => {
@@ -89,5 +92,5 @@ test('a launcher that exits with an error is an error', () => {
     '2026-10-13T08:30:00Z [verify PROJ-16 #1 49b82ab] launcher exited with code 1 after 4 s; log: /x.log',
     Date.parse('2026-10-13T09:00:00Z'),
   );
-  assert.equal(j.items[0] && !('quiet' in j.items[0]) && j.items[0].kind, 'error');
+  expect(j.items[0] && !('quiet' in j.items[0]) && j.items[0].kind).toBe('error');
 });

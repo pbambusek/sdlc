@@ -81,7 +81,7 @@ yarn format           # oxfmt; format:check only checks
 yarn check:repo       # manifests, skill references, no tests in the plugin, runtime imports
 ```
 
-`yarn test` also runs foreman's tests: its own with `node --test`, its verify runner's with Vitest. A test that needs a tool the machine lacks (`limactl`, `nono`) is skipped, and its name says which tool.
+`yarn test` also runs foreman's tests. A test that needs a tool the machine lacks (`limactl`, `nono`) is skipped, and its name says which tool.
 
 Adding a skill: create `plugins/<plugin>/skills/<skill>/SKILL.md` with `name` and `description` frontmatter, where `name` matches the folder, and list it above. Supporting files are referenced relative to the skill's folder as `<skill dir>/…`, and its runtime code as `<runtime dir>/…`; the repo check fails when either names a file that does not exist. Adding a plugin: create `plugins/<plugin>/.claude-plugin/plugin.json` with `"skills": ["./skills/"]` and add an entry to `marketplace.json`.
 

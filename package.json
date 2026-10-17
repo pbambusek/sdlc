@@ -9,7 +9,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "vitest run && node --test 'foreman/test/*.test.mts'",
+    "test": "vitest run",
     "lint": "oxlint --deny-warnings plugins tests foreman .github",
     "format": "oxfmt plugins/sdlc/runtime tests foreman .github",
     "format:check": "oxfmt --check plugins/sdlc/runtime tests foreman .github",

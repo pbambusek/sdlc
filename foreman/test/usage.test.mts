@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import { parseSince } from '../src/stats.mts';
 import { cacheHit, cost, DEFAULT_PRICES, sessionUsage } from '../src/usage.mts';
 
@@ -38,26 +37,26 @@ test('a response counts once however many content blocks it was written as, with
   writeFileSync(join(dir, 's1', 'subagents', 'agent-a.meta.json'), '{}');
 
   const u = sessionUsage(main);
-  assert.equal(u.turns, 3);
-  assert.equal(u.subagents, 1);
-  assert.equal(u.seconds, 120);
-  assert.deepEqual(u.tools, { Bash: 2, Read: 1 });
-  assert.deepEqual(u.tokens, { input: 19, output: 12, cacheRead: 100, cacheWrite5m: 30, cacheWrite1h: 20 });
-  assert.deepEqual(Object.keys(u.models).sort(), ['claude-haiku-5-5', 'claude-opus-5-5']);
-  assert.equal(cacheHit(u.tokens), 100 / 169);
+  expect(u.turns).toBe(3);
+  expect(u.subagents).toBe(1);
+  expect(u.seconds).toBe(120);
+  expect(u.tools).toStrictEqual({ Bash: 2, Read: 1 });
+  expect(u.tokens).toStrictEqual({ input: 19, output: 12, cacheRead: 100, cacheWrite5m: 30, cacheWrite1h: 20 });
+  expect(Object.keys(u.models).sort()).toStrictEqual(['claude-haiku-5-5', 'claude-opus-5-5']);
+  expect(cacheHit(u.tokens)).toBe(100 / 169);
 });
 
 test('cost prices each model, matches dated variants, and names the models it cannot price', () => {
   const t = (input: number, output: number) => ({ input, output, cacheRead: 1e6, cacheWrite5m: 0, cacheWrite1h: 1e6 });
   const u = { models: { 'claude-opus-5-5[1m]': t(1e6, 1e6), 'claude-mystery-9': t(1e6, 0) } } as any;
   const c = cost(u, DEFAULT_PRICES);
-  assert.equal(c.usd, 4 + 20 + 0.2 + 8);
-  assert.deepEqual(c.unpriced, ['claude-mystery-9']);
+  expect(c.usd).toBe(4 + 20 + 0.2 + 8);
+  expect(c.unpriced).toStrictEqual(['claude-mystery-9']);
 });
 
 test('--since takes a span or a date', () => {
   const now = Date.parse('2026-10-13T12:00:00.000Z');
-  assert.equal(parseSince('7d', now), '2026-10-06T12:00:00.000Z');
-  assert.equal(parseSince('2026-10-01', now), '2026-10-01T00:00:00.000Z');
-  assert.throws(() => parseSince('last week', now));
+  expect(parseSince('7d', now)).toBe('2026-10-06T12:00:00.000Z');
+  expect(parseSince('2026-10-01', now)).toBe('2026-10-01T00:00:00.000Z');
+  expect(() => parseSince('last week', now)).toThrow();
 });

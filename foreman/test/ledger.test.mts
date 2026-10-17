@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import { adfToMarkdown, textToAdf } from '../src/adf.mts';
 import { classify } from '../src/evidence.mts';
 import { buildComment, feedbackComment, launchComment, readApproval, readComments, reportComment, reviewComment, type ChangelogEntry } from '../src/ledger.mts';
@@ -15,20 +14,19 @@ const edit = (at: string): ChangelogEntry => ({ at, accountId: 'x', who: 'Bob', 
 
 test('an approval counts only from an approver, and only until the description changes', () => {
   const approved = labels(t(1), 'ann', 'sdlc', 'sdlc sdlc-approved');
-  assert.equal(readApproval(['sdlc', 'sdlc-approved'], [approved], ['ann'], t(0)).approval.ok, true);
-  assert.equal(readApproval(['sdlc', 'sdlc-approved'], [approved], ['someone-else'], t(0)).approval.ok, false);
+  expect(readApproval(['sdlc', 'sdlc-approved'], [approved], ['ann'], t(0)).approval.ok).toBe(true);
+  expect(readApproval(['sdlc', 'sdlc-approved'], [approved], ['someone-else'], t(0)).approval.ok).toBe(false);
   const r = readApproval(['sdlc', 'sdlc-approved'], [approved, edit(t(2))], ['ann'], t(0));
-  assert.equal(r.approval.ok === false && r.approval.code, 'edited-after-approval');
+  expect(r.approval.ok === false && r.approval.code).toBe('edited-after-approval');
   // Re-approving after the edit makes it count again.
-  assert.equal(
-    readApproval(['sdlc', 'sdlc-approved'], [approved, edit(t(2)), labels(t(3), 'ann', 'sdlc', 'sdlc sdlc-approved')], ['ann'], t(0)).approval.ok,
+  expect(readApproval(['sdlc', 'sdlc-approved'], [approved, edit(t(2)), labels(t(3), 'ann', 'sdlc', 'sdlc sdlc-approved')], ['ann'], t(0)).approval.ok).toBe(
     true,
   );
 });
 
 test('un-parking starts a new epoch', () => {
   const log = [labels(t(1), 'ann', 'sdlc', 'sdlc sdlc-approved'), labels(t(5), 'ann', 'sdlc sdlc-approved sdlc-parked', 'sdlc sdlc-approved')];
-  assert.equal(readApproval(['sdlc', 'sdlc-approved'], log, ['ann'], t(0)).epoch, t(5));
+  expect(readApproval(['sdlc', 'sdlc-approved'], log, ['ann'], t(0)).epoch).toBe(t(5));
 });
 
 test('tick comments round-trip through Jira', () => {
@@ -39,10 +37,10 @@ test('tick comments round-trip through Jira', () => {
     { at: t(3), text: 'a person writing [sdlc] launched stage=build in the middle' },
   ];
   const r = readComments(comments);
-  assert.deepEqual(r.launches, [
+  expect(r.launches).toStrictEqual([
     { stage: 'build', at: t(1), attempt: 1, base: 'none', sha: undefined, session: 'abc', log: undefined, work: undefined, result: undefined },
   ]);
-  assert.deepEqual(r.reports, [{ at: t(2), sha, result: 'failed', evidence: undefined, page: undefined, run: undefined }]);
+  expect(r.reports).toStrictEqual([{ at: t(2), sha, result: 'failed', evidence: undefined, page: undefined, run: undefined }]);
 });
 
 test('numbered claims survive the ADF conversion', () => {
@@ -77,7 +75,7 @@ test('numbered claims survive the ADF conversion', () => {
       },
     ],
   };
-  assert.equal(adfToMarkdown(doc), '## Claims\n\n1. A user sees `Save`\n2. An error is shown.\n\n   Calibration: a toast counts.');
+  expect(adfToMarkdown(doc)).toBe('## Claims\n\n1. A user sees `Save`\n2. An error is shown.\n\n   Calibration: a toast counts.');
 });
 
 test('a verify run is passed only when the audit is clean and every claim is shown', () => {
@@ -85,26 +83,26 @@ test('a verify run is passed only when the audit is clean and every claim is sho
     claims: statuses.map((s, i) => ({ id: `C${i + 1}`, items: [{ status: s, reason: s === 'shown' ? undefined : 'why' }] })),
   });
   const clean = { clean: true, verdict: 'clean' };
-  assert.equal(classify(ev('shown', 'shown'), clean).result, 'passed');
-  assert.equal(classify(ev('shown', 'not-shown'), clean).result, 'failed');
-  assert.equal(classify(ev('not-shown', 'blocked'), clean).result, 'blocked');
-  assert.equal(classify(ev('shown'), { clean: false, verdict: 'reached git history' }).result, 'invalid');
-  assert.equal(classify(null, clean).result, 'invalid');
+  expect(classify(ev('shown', 'shown'), clean).result).toBe('passed');
+  expect(classify(ev('shown', 'not-shown'), clean).result).toBe('failed');
+  expect(classify(ev('not-shown', 'blocked'), clean).result).toBe('blocked');
+  expect(classify(ev('shown'), { clean: false, verdict: 'reached git history' }).result).toBe('invalid');
+  expect(classify(null, clean).result).toBe('invalid');
 });
 
 test('a comment body is a valid ADF document', () => {
   const doc = textToAdf('[sdlc] parked\n\nWhy');
-  assert.equal(doc.version, 1);
-  assert.equal(doc.type, 'doc');
-  assert.equal('attrs' in doc, false);
+  expect(doc.version).toBe(1);
+  expect(doc.type).toBe('doc');
+  expect('attrs' in doc).toBe(false);
   // No empty text nodes: Jira rejects them.
-  assert.deepEqual(doc.content?.[1], { type: 'paragraph', content: [] });
+  expect(doc.content?.[1]).toStrictEqual({ type: 'paragraph', content: [] });
 });
 
 test('a report comment carries the attachment ids of the full report', () => {
   const sha = 'd'.repeat(40);
   const text = adfToMarkdown(textToAdf(reportComment(sha, 'failed', '1 not shown', { evidence: '10001', page: '10002' })));
-  assert.deepEqual(readComments([{ at: t(1), text }]).reports, [{ at: t(1), sha, result: 'failed', evidence: '10001', page: '10002', run: undefined }]);
+  expect(readComments([{ at: t(1), text }]).reports).toStrictEqual([{ at: t(1), sha, result: 'failed', evidence: '10001', page: '10002', run: undefined }]);
 });
 
 test('a build result round-trips, with its questions for people below the fields', () => {
@@ -117,22 +115,19 @@ test('a build result round-trips, with its questions for people below the fields
     commit: null,
     questions: [{ about: ['C4'], question: 'Which locale?', recommended: 'en' }],
   });
-  assert.match(askedText, /\(C4\) Which locale\?\n   Recommended: en/);
+  expect(askedText).toMatch(/\(C4\) Which locale\?\n   Recommended: en/);
   const r = readComments([
     { at: t(1), text: adfToMarkdown(textToAdf(built)) },
     { at: t(2), text: adfToMarkdown(textToAdf(askedText)) },
     { at: t(3), text: adfToMarkdown(textToAdf(buildComment(launch, null))) },
     { at: t(4), text: '[sdlc] build-result attempt=1 outcome=built review=[https://x/pull/1](https://x/pull/1)' },
   ]);
-  assert.deepEqual(
-    r.outcomes.map((o) => [o.outcome, o.branch, o.commit, o.review]),
-    [
-      ['built', 'PROJ-1-x', sha, 'https://github.com/o/r/pull/7'],
-      ['asked', 'PROJ-1-x', undefined, undefined],
-      ['none', undefined, undefined, undefined],
-      ['built', undefined, undefined, 'https://x/pull/1'],
-    ],
-  );
+  expect(r.outcomes.map((o) => [o.outcome, o.branch, o.commit, o.review])).toStrictEqual([
+    ['built', 'PROJ-1-x', sha, 'https://github.com/o/r/pull/7'],
+    ['asked', 'PROJ-1-x', undefined, undefined],
+    ['none', undefined, undefined, undefined],
+    ['built', undefined, undefined, 'https://x/pull/1'],
+  ]);
 });
 
 test('a feedback result, its launch and a review request round-trip', () => {
@@ -148,23 +143,17 @@ test('a feedback result, its launch and a review request round-trip', () => {
     blocked: [{ source: 'ci:e2e', reason: 'runner lost' }],
   };
   const text = feedbackComment(launch, result, 'feedback-fffffff-1.json');
-  assert.match(text, /1 blocking and 1 advisory findings, 1 signals nobody could read\.\n- F1 \(ci:test\): login\.spec\.ts fails/);
+  expect(text).toMatch(/1 blocking and 1 advisory findings, 1 signals nobody could read\.\n- F1 \(ci:test\): login\.spec\.ts fails/);
   const r = readComments([
     { at: t(1), text: adfToMarkdown(textToAdf(launchComment(launch, 'note'))) },
     { at: t(2), text: adfToMarkdown(textToAdf(text)) },
     { at: t(3), text: adfToMarkdown(textToAdf(feedbackComment(launch, null))) },
     { at: t(4), text: adfToMarkdown(textToAdf(reviewComment(sha, 'Asked for a review.'))) },
   ]);
-  assert.deepEqual(
-    r.launches.map((l) => [l.stage, l.sha, l.session, l.result]),
-    [['feedback', sha, 's2', '/r/feedback-fffffff-1.json']],
-  );
-  assert.deepEqual(
-    r.feedbacks.map((o) => [o.attempt, o.sha, o.session, o.outcome, o.file]),
-    [
-      [1, sha, 's2', 'fix', 'feedback-fffffff-1.json'],
-      [1, sha, 's2', 'none', undefined],
-    ],
-  );
-  assert.deepEqual(r.reviewRequests, [{ at: t(4), sha }]);
+  expect(r.launches.map((l) => [l.stage, l.sha, l.session, l.result])).toStrictEqual([['feedback', sha, 's2', '/r/feedback-fffffff-1.json']]);
+  expect(r.feedbacks.map((o) => [o.attempt, o.sha, o.session, o.outcome, o.file])).toStrictEqual([
+    [1, sha, 's2', 'fix', 'feedback-fffffff-1.json'],
+    [1, sha, 's2', 'none', undefined],
+  ]);
+  expect(r.reviewRequests).toStrictEqual([{ at: t(4), sha }]);
 });

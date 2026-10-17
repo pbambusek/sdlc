@@ -110,7 +110,7 @@ Deleting `~/.sdlc/` (except the config) while nothing runs loses history and the
 ## Develop
 
 ```
-yarn test                   from the repo root: the table, the ledger format, ADF conversion, result classification, usage counting
+yarn test                   from the repo root (Vitest): the table, the ledger format, ADF conversion, result classification, usage counting
 ```
 
 `src/decide.mts` is the table: pure, observed facts in, one decision out. Everything else observes (`tick.mts` → `jira.mts`, `github.mts`, `sessions.mts`, `evidence.mts`) or acts.
