@@ -52,12 +52,14 @@ export interface Recipe {
 
 const DEFAULTS = { provision: '', caches: [], cpus: 4, memory: 8, disk: 60 };
 
-/** The `## Workspace` section's JSON block, or the defaults when VERIFY.md has none. Throws when the block is malformed. */
+/**
+ * The `## Workspace` section's JSON block, foreman's own settings beside the section's prose, or the defaults when there is
+ * none: the verify skill makes the section prose, and the verifier installs what it names. Throws when the block is malformed.
+ */
 export const parseRecipe = (verifyMd: string | null): Recipe => {
   const section = verifyMd?.split(/^## /m).find((s) => /^Workspace\s*\n/.test(s));
-  if (!section) return { ...DEFAULTS };
-  const block = section.match(/```json\n([\s\S]*?)```/)?.[1];
-  if (!block) throw new Error('VERIFY.md: the Workspace section has no ```json block');
+  const block = section?.match(/```json\n([\s\S]*?)```/)?.[1];
+  if (!block) return { ...DEFAULTS };
   const r = JSON.parse(block) as Partial<Recipe>;
   const problems: string[] = [];
   const provision = Array.isArray(r.provision) ? r.provision.join('\n') : (r.provision ?? '');

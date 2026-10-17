@@ -16,6 +16,16 @@ describe('parseRecipe', () => {
     expect(parseRecipe(null).cpus).toBe(4);
   });
 
+  it('is the defaults when the Workspace section is prose only', () => {
+    expect(parseRecipe('# Verify\n\n## Workspace\n\nNode 24 or later. Nothing else.\n\n## Seams\n')).toEqual({
+      provision: '',
+      caches: [],
+      cpus: 4,
+      memory: 8,
+      disk: 60,
+    });
+  });
+
   it('reads provisioning lines, caches and the size', () => {
     const recipe = parseRecipe(
       section({
@@ -37,7 +47,6 @@ describe('parseRecipe', () => {
     expect(() => parseRecipe(section({ cpus: 0, caches: [{ host: 'relative', guest: 'also' }] }))).toThrow(
       'VERIFY.md Workspace: cpus: a positive whole number; caches.0.host: a host folder, absolute or under ~/; caches.0.guest: an absolute folder in the VM',
     );
-    expect(() => parseRecipe('## Workspace\n\nno block\n')).toThrow('the Workspace section has no ```json block');
   });
 });
 
