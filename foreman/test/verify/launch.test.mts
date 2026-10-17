@@ -2,9 +2,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { USAGE } from '../../../../plugins/sdlc/runtime/verify/args.mts';
-import { ensureTemplate, parseRecipe } from '../../../../plugins/sdlc/runtime/verify/workspace.mts';
-import { declaring, fakeBin, needs, repoWithRemote, runtimeDir, temp, VERIFY_MD } from './helpers.mts';
+import { USAGE } from '../../src/verify/args.mts';
+import { ensureTemplate, parseRecipe } from '../../src/verify/workspace.mts';
+import { declaring, fakeBin, needs, repoWithRemote, runnerDir, temp, VERIFY_MD } from './helpers.mts';
 
 /** A new git repo, without a remote, with these committed files, plus a gitignored `.env`. */
 const repo = (files: Record<string, string>) => {
@@ -40,7 +40,7 @@ const launch = (cwd: string, args: string[], { commands = [] as string[], bin = 
   writeFileSync(join(dir, 'commands.json'), JSON.stringify(commands));
   const record = join(dir, 'record.json');
   const path = fakeBin({ claude: `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(import.meta.dirname, 'fake-claude.mts'))} "$@"`, ...bin });
-  const r = spawnSync(process.execPath, [join(runtimeDir, 'launch.mts'), ...args], {
+  const r = spawnSync(process.execPath, [join(runnerDir, 'launch.mts'), ...args], {
     cwd,
     encoding: 'utf8',
     timeout,

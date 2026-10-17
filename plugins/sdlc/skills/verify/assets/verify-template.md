@@ -8,21 +8,17 @@ The facts about <project or package> that the verify skill reads. A run follows 
 
 <!-- The repo root's VERIFY.md only, when a run needs gitignored files: -->
 
-Copy into a run (`launch.mts --copy <path>`):
+Copy into a run:
 
 - `<path>`: <what it is, such as an .env that holds only secret references>.
 
-<!-- The repo root's VERIFY.md only, when the project needs more than Ubuntu with Docker and Node. -->
+<!-- The repo root's VERIFY.md only. A runner may add its own settings here, in the form its documentation gives. -->
 
 ## Workspace
 
-<What the run's VM installs once, when its template is baked, and which host caches a run reads read-only.>
+<The operating system and architecture the system runs on, and what a run's workspace needs beyond the system's own install: toolchains and tools at the versions the project pins, each with how to install it, images worth fetching ahead, the memory a cold start peaks at, and any tool cache a run gains from.>
 
-```json
-{ "provision": ["<install command>"], "caches": [{ "host": "~/<cache folder>", "guest": "/var/cache/<tool>", "env": { "<TOOL_CACHE_VAR>": "/var/cache/<tool>" } }], "cpus": 4, "memory": 8, "disk": 60 }
-```
-
-<!-- The repo root's VERIFY.md only, when a claim needs a real service. A run holds a token; the launcher's nono proxy puts the real value on requests to the declared hosts. -->
+<!-- The repo root's VERIFY.md only, when a claim needs a real service. The runner reads each credential without a prompt; it hands the run the value, or a placeholder it swaps on the declared hosts only. -->
 
 ## Credentials
 

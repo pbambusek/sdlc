@@ -1,0 +1,17 @@
+{
+  "name": "foreman",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runs the sdlc skills locally: Jira and GitHub are the ledger, each tick launches the next stage, and verify runs in a workspace it makes.",
+  "bin": {
+    "foreman": "bin/foreman"
+  },
+  "type": "module",
+  "scripts": {
+    "tick": "bin/foreman tick",
+    "status": "bin/foreman status"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

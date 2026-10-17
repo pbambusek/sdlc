@@ -1,9 +1,10 @@
 /**
  * Verifies one commit against its claims in a fresh Claude Code session that knows nothing of how the code was written,
  * and prints where the evidence page is. Run it from anywhere inside the repo:
- *   node <runtime dir>/launch.mts <spec path at the target> [ref]
- *   node <runtime dir>/launch.mts --claims <file> [--source <label>] [ref]
- *   node <runtime dir>/launch.mts --export-only [ref]   (setup: export and copy into a workspace VM, print how to open a shell in it, start no session)
+ *   foreman verify <spec path at the target> [ref]
+ *   foreman verify --claims <file> [--source <label>] [ref]
+ *   foreman verify --export-only [ref]   (setup: export and copy into a workspace VM, print how to open a shell in it, start no session)
+ * `foreman verify` runs this file; the tick runs it the same way for each round.
  *   options: --copy <path> (repeatable), --slug <name>, --interactive
  * The page lands in <repo>/.verify/<slug>/<timestamp>-<commit>/ and opens; VERIFY_NO_OPEN=1 keeps it closed.
  *
@@ -17,7 +18,7 @@
  *     Claude Code setup (memory, instructions, plugins, skills, connectors). Its only tools are running a command in the
  *     workspace and viewing an image the workspace saved; anything else is refused without asking;
  *   - afterwards the session's transcript is audited, and the page shows the verdict and any exported file it changed.
- * The method (run.md) comes from the verify skill in the plugin the launcher runs from; the claims and the code come from the target commit; the VERIFY.md
+ * The method (run.md) comes from the verify skill in the plugin of the checkout the launcher runs from; the claims and the code come from the target commit; the VERIFY.md
  * files come from the remote's default branch (instructions.mts), so the commit under test can't rewrite its own instructions.
  *
  * When VERIFY.md declares credentials, the run holds only placeholders for them (credentials.mts): the launcher reads the real
@@ -139,10 +140,11 @@ mkdirSync(RUNS, { recursive: true, mode: 0o700 });
 // command and credential logs), out of the workspace's reach.
 const work = realpathSync(mkdtempSync(join(RUNS, 'r-')));
 const stateDir = realpathSync(mkdtempSync(join(RUNS, 'l-')));
-// The skill's method and assets sit beside the runtime in the plugin; the verifier and the workspace read both.
-const runtimeDir = realpathSync(import.meta.dirname);
-const skillDir = realpathSync(resolve(runtimeDir, '../../skills/verify'));
-const pluginDir = realpathSync(resolve(runtimeDir, '../..'));
+// The runner is foreman's; the skill's method, assets and scripts are the plugin's in the same checkout. The workspace reads both.
+const runnerDir = realpathSync(import.meta.dirname);
+const pluginDir = realpathSync(resolve(runnerDir, '../../../plugins/sdlc'));
+const skillDir = join(pluginDir, 'skills/verify');
+const runtimeDir = join(pluginDir, 'runtime/verify');
 // The owner's Claude Code keeps session transcripts and auto-memory under its config dir's `projects/`.
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 // A declared cache is a tool's packages: one that reaches how the code was written stops the launch.
@@ -183,7 +185,7 @@ if (exportOnly) {
   if (!workspaceMissing()) {
     try {
       const template = ensureTemplate({ recipe: recipe!, log: (line) => console.log(line) });
-      const ws = await openWorkspace({ template, work, stateDir, pluginDir, runtimeDir, caches, env: baseEnv, serve: false });
+      const ws = await openWorkspace({ template, work, stateDir, pluginDir, runnerDir, caches, env: baseEnv, serve: false });
       console.log(`a shell in its workspace: limactl shell --workdir ${work} ${ws.name}`);
       console.log(`when done: limactl delete -f ${ws.name}`);
     } catch (e) {
@@ -222,7 +224,7 @@ try {
     work,
     stateDir,
     pluginDir,
-    runtimeDir,
+    runnerDir,
     caches,
     env: (proxy?.env as Record<string, string> | undefined) ?? baseEnv,
     trust: proxy ? join(verifyDir, 'proxy-ca.pem') : undefined,
@@ -248,6 +250,8 @@ const prompt = [
   `Verify commit ${commit} (${ref}) against the claims below. They come from ${source}, unchanged.`,
   `The skill's folder is ${skillDir}.`,
   `The runtime's folder is ${runtimeDir}.`,
+  `${ws.summary} It has Docker of its own. Each command you run is logged with its exit status.`,
+  "Your tools: `Bash` runs a command in the workspace, and `Read` views an image the workspace saved. `playwright-cli` opens Playwright's own Chromium, set as the default: the workspace has no Google Chrome.",
   `You run ${interactive ? 'interactive' : 'headless'}.`,
   `The VERIFY.md files in this folder are those on ${instructions!.remote}/${instructions!.branch}, the project's default branch.`,
   '',

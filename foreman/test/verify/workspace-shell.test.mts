@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseScript, splitAnd, words } from '../../../../plugins/sdlc/runtime/verify/workspace-shell.mts';
+import { parseScript, splitAnd, words } from '../../src/verify/workspace-shell.mts';
 
 // The shape Claude Code's Bash tool hands its shell prefix: its own setup, then the command, then the folder it ended in.
 const q = (s: string) => `'${s.replaceAll("'", `'"'"'`)}'`;

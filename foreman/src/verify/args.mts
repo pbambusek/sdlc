@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 
 /** The launcher's command line: what to verify, at which ref, and how. */
 export const USAGE =
-  'usage: launch.mts <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--interactive]';
+  'usage: foreman verify <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--interactive]';
 
 export interface Options {
   exportOnly: boolean;

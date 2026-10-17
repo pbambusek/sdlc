@@ -2,7 +2,7 @@
  * Builds `<dir>/evidence.html` from `<dir>/evidence.json` and the locked template, inlining every screenshot, and prints
  * the summary: the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason.
  * Usage: `node <runtime dir>/build-page.mts [dir, default .verify]`, from the run folder.
- * Exits 1 and lists every problem when the evidence is malformed. The target and the source come from the launcher's
+ * Exits 1 and lists every problem when the evidence is malformed. The target and the source come from the runner's
  * `target.json`, and its audit becomes the page's trust line. A screenshot cited by several claims is embedded once.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-// The launcher audits the session once it ends and rebuilds the page with the verdict.
+// The runner audits the session once it ends and rebuilds the page with the verdict.
 const auditFile = path.join(dir, 'audit.json');
 const audit = existsSync(auditFile)
   ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; clean: boolean; changed: string[]; credentials?: string[]; workspace?: string[] })
@@ -33,7 +33,7 @@ const trust = audit
         ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : []),
       ],
     }
-  : { state: 'pending', lines: ['Audit: pending; the launcher audits the session when it ends.'] };
+  : { state: 'pending', lines: ['Audit: pending; the runner audits the session when it ends.'] };
 // The credential proxy's log: one line per request that carried a declared credential, never a value.
 const logFile = path.join(dir, 'credential-requests.jsonl');
 const credentialRequests = existsSync(logFile)

@@ -1,0 +1,26 @@
+{
+  "jira": {
+    "baseUrl": "https://example.atlassian.net",
+    "email": "you@example.com",
+    "jql": "labels = sdlc AND resolution = Unresolved ORDER BY created ASC"
+  },
+  "approvers": ["<Jira account id; foreman whoami prints yours>"],
+  "repos": {
+    "PROJ": {
+      "path": "/Users/you/projects/example",
+      "github": "example-org/example",
+      "verifyCopy": [],
+      "review": { "reviewer": "<reviewer login>", "check": "<reviewer's check run name>" }
+    }
+  },
+  "build": {
+    "skill": "/sdlc:build",
+    "permissionMode": "auto",
+    "disallowedTools": []
+  },
+  "feedback": {
+    "skill": "/sdlc:feedback"
+  },
+  "maxConcurrent": 2,
+  "limits": { "maxBuilds": 5, "maxInvalidVerifies": 2, "maxFeedbackRuns": 2, "roundTimeoutMinutes": 120 }
+}

@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseDeclaration } from '../../../../plugins/sdlc/runtime/verify/credentials.mts';
-import { applyInstructions, readInstructions } from '../../../../plugins/sdlc/runtime/verify/instructions.mts';
+import { parseDeclaration } from '../../src/verify/credentials.mts';
+import { applyInstructions, readInstructions } from '../../src/verify/instructions.mts';
 import { declaring, repoWithRemote, temp, VERIFY_MD } from './helpers.mts';
 
 describe('readInstructions', () => {

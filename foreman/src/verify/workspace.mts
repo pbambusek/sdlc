@@ -52,12 +52,14 @@ export interface Recipe {
 
 const DEFAULTS = { provision: '', caches: [], cpus: 4, memory: 8, disk: 60 };
 
-/** The `## Workspace` section's JSON block, or the defaults when VERIFY.md has none. Throws when the block is malformed. */
+/**
+ * The `## Workspace` section's JSON block, foreman's own settings beside the section's prose, or the defaults when there is
+ * none: the verify skill makes the section prose, and the verifier installs what it names. Throws when the block is malformed.
+ */
 export const parseRecipe = (verifyMd: string | null): Recipe => {
   const section = verifyMd?.split(/^## /m).find((s) => /^Workspace\s*\n/.test(s));
-  if (!section) return { ...DEFAULTS };
-  const block = section.match(/```json\n([\s\S]*?)```/)?.[1];
-  if (!block) throw new Error('VERIFY.md: the Workspace section has no ```json block');
+  const block = section?.match(/```json\n([\s\S]*?)```/)?.[1];
+  if (!block) return { ...DEFAULTS };
   const r = JSON.parse(block) as Partial<Recipe>;
   const problems: string[] = [];
   const provision = Array.isArray(r.provision) ? r.provision.join('\n') : (r.provision ?? '');
@@ -261,7 +263,7 @@ export const openWorkspace = async ({
   work,
   stateDir,
   pluginDir,
-  runtimeDir,
+  runnerDir,
   caches,
   env,
   trust,
@@ -271,7 +273,8 @@ export const openWorkspace = async ({
   work: string;
   stateDir: string;
   pluginDir: string;
-  runtimeDir: string;
+  /** The runner's own folder: the workspace server runs from it. */
+  runnerDir: string;
   caches: (Cache & { path: string })[];
   env: Record<string, string>;
   trust?: string;
@@ -281,7 +284,7 @@ export const openWorkspace = async ({
   mkdirSync(verifyDir, { recursive: true });
   writeFileSync(join(verifyDir, 'playwright.json'), JSON.stringify(PLAYWRIGHT, null, 2) + '\n');
   const name = `sdlc-run-${randomBytes(4).toString('hex')}`;
-  const mounts = [`${verifyDir}:w`, pluginDir, ...caches.map((c) => c.path)].flatMap((m) => ['--mount-only', m]);
+  const mounts = [`${verifyDir}:w`, pluginDir, runnerDir, ...caches.map((c) => c.path)].flatMap((m) => ['--mount-only', m]);
   limaOk(['clone', '--tty=false', template, name, ...mounts], 'cloning the template');
   const remove = () => lima(['delete', '-f', name], { timeout: 180_000 });
   try {
@@ -337,8 +340,8 @@ export const openWorkspace = async ({
     });
 
     const caching = caches.length ? `, caches read-only (${caches.map((c) => c.host).join(', ')})` : '';
-    const summary = `Workspace: a local Linux VM, fresh for this run; it shares with the host only the run's evidence folder and, read-only, the skill and runtime folders${caching}.`;
-    const banner = `Workspace: Lima VM ${name}, cloned from ${template}; it holds the export on its own disk and shares only the run's .verify, the plugin folder read-only${caching}.`;
+    const summary = `Workspace: a local Linux VM, fresh for this run; it shares with the host only the run's evidence folder and, read-only, the skill's and the runner's folders${caching}.`;
+    const banner = `Workspace: Lima VM ${name}, cloned from ${template}; it holds the export on its own disk and shares only the run's .verify, the plugin's and the runner's folders read-only${caching}.`;
     const changed = () =>
       lima(['shell', '--workdir', work, name, '--', 'bash', '-c', `sha1sum -c --quiet ${GUEST_RUN}/before.sha1 2>/dev/null; true`])
         .stdout.split('\n')
@@ -360,7 +363,7 @@ export const openWorkspace = async ({
         '--',
         'bash',
         '-c',
-        `set -a; . ${GUEST_RUN}/env; set +a; exec node ${q(join(runtimeDir, 'workspace-server.mts'))} ${GUEST_SOCKET}`,
+        `set -a; . ${GUEST_RUN}/env; set +a; exec node ${q(join(runnerDir, 'workspace-server.mts'))} ${GUEST_SOCKET}`,
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
@@ -382,7 +385,7 @@ export const openWorkspace = async ({
 
     const shell = join(stateDir, 'shell');
     const shellArgs = ['--socket', socket, '--log', commandLog, '--workspace', 'local-vm'].map(q).join(' ');
-    writeFileSync(shell, `#!/bin/sh\nexec ${q(process.execPath)} ${q(join(runtimeDir, 'workspace-shell.mts'))} ${shellArgs} "$@"\n`);
+    writeFileSync(shell, `#!/bin/sh\nexec ${q(process.execPath)} ${q(join(runnerDir, 'workspace-shell.mts'))} ${shellArgs} "$@"\n`);
     chmodSync(shell, 0o755);
 
     const close = async () => {
