@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs foreman with the node on PATH; Node 24 runs the TypeScript sources directly.
+# --use-system-ca: trust the macOS keychain's roots, as curl does, so a TLS-inspecting proxy's root is accepted.
+exec node --use-system-ca "$(dirname "$(realpath "$0")")/../src/cli.mts" "$@"

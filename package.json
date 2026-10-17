@@ -1,7 +1,7 @@
 {
   "name": "sdlc-repo",
   "private": true,
-  "description": "Development tooling for the sdlc plugin. None of it ships in the plugin.",
+  "description": "Development tooling for the sdlc plugin and foreman. None of it ships in the plugin.",
   "license": "Apache-2.0",
   "type": "module",
   "packageManager": "yarn@4.10.3",
@@ -9,10 +9,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "vitest run",
-    "lint": "oxlint --deny-warnings plugins tests .github",
-    "format": "oxfmt plugins/sdlc/runtime tests .github",
-    "format:check": "oxfmt --check plugins/sdlc/runtime tests .github",
+    "test": "vitest run && node --test 'foreman/test/*.test.mts'",
+    "lint": "oxlint --deny-warnings plugins tests foreman .github",
+    "format": "oxfmt plugins/sdlc/runtime tests foreman .github",
+    "format:check": "oxfmt --check plugins/sdlc/runtime tests foreman .github",
     "check:repo": "node .github/check.mjs"
   },
   "devDependencies": {
