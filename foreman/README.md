@@ -89,12 +89,12 @@ Cost is at list price, from the table in `src/usage.mts`. `prices` in the config
 ```
 bin/foreman install    load a LaunchAgent: tick at load and every 300 s (--every <s> to change)
 bin/foreman kick       tick now, through launchd
-bin/foreman status     shows "launchd: com.sdlc-tick loaded; state = …; runs = …; last exit code = …"
+bin/foreman status     shows "launchd: com.sdlc.foreman loaded; state = …; runs = …; last exit code = …"
 bin/foreman log -f     every tick's output, in the journal
 bin/foreman uninstall  stop and remove it
 ```
 
-The agent is `~/Library/LaunchAgents/com.sdlc-tick.plist`. A tick writes the journal itself; launchd's own stderr goes to `~/.sdlc/launchd-stderr.log`, which holds only what never reached the journal, such as `node` not starting. An agent installed before the journal wrote `~/.sdlc/tick.log`: run `install` again. It runs as you while you are logged in; a tick missed during sleep runs once on wake. The plist carries a PATH with the directories of `node`, `claude`, `gh` and `git` as they were at install: run `install` again after moving any of them. macOS lists it under System Settings → General → Login Items & Extensions.
+The agent is `~/Library/LaunchAgents/com.sdlc.foreman.plist`. A tick writes the journal itself; launchd's own stderr goes to `~/.sdlc/launchd-stderr.log`, which holds only what never reached the journal, such as `node` not starting. An agent installed before the journal wrote `~/.sdlc/tick.log`: run `install` again. It runs as you while you are logged in; a tick missed during sleep runs once on wake. The plist carries a PATH with the directories of `node`, `claude`, `gh` and `git` as they were at install: run `install` again after moving any of them. macOS lists it under System Settings → General → Login Items & Extensions.
 
 ## Local files
 
