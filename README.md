@@ -1,6 +1,6 @@
 # sdlc
 
-Agent skills for the software delivery lifecycle, and the runtime they call, published as a Claude Code plugin marketplace.
+Agent skills for the software delivery lifecycle, and the runtime they call, published as a Claude Code plugin marketplace; and [foreman](foreman/README.md), which runs them locally.
 
 ## Plugins
 
@@ -8,11 +8,15 @@ Agent skills for the software delivery lifecycle, and the runtime they call, pub
 
 - `spec` — a one-page issue stating intent and numbered, verifiable claims, leaving the solution to the builder.
 - `build` — builds a spec as pushed commits on a draft pull request, and on a later round fixes the findings fed back about its claims, from `verify` or any other source. It ends in a result file that a person or an orchestrator acts on, and knows nothing of `verify`'s format or files.
-- `verify` — independent runtime verification: a fresh, isolated session runs one commit, drives it at its boundaries, and proves each claim on one evidence page. Every command it runs executes in a Linux VM made for that run, and the verifier stays outside it. A project describes how to run it in `VERIFY.md` files, which a run reads from the default branch. Needs [Lima](https://lima-vm.io), and [nono](https://nono.sh) for credentials. Experimental.
+- `verify` — independent runtime verification: a fresh, isolated session runs one commit, drives it at its boundaries, and proves each claim on one evidence page. A runner starts each run in a workspace made for it, with the verifier outside; the skill states what every runner guarantees, and foreman is the local one. A project describes how to run it in `VERIFY.md` files, which a run reads from the default branch. Experimental.
 - `feedback` — reads what CI, a verification run and code review found on one pushed commit, and writes it as findings for the next `build` round. It reads only and never waits: an orchestrator calls it once the signals are in. A project describes how to read its checks in a `FEEDBACK.md` file.
 - `prototype` — a clickable, self-contained HTML prototype of a change to a web app's page, built on the running app's look. A project describes how to capture and reproduce its look in `PROTOTYPE.md` files.
 
 Skills are invoked as `/<plugin>:<skill>`, e.g. `/sdlc:verify`, or picked up by Claude from their descriptions. The runtime needs Node 24 or later and nothing else: no install, no build step.
+
+## foreman
+
+[foreman](foreman/README.md) runs the loop on your machine: each tick reads the issues in Jira, works out the next stage from Jira and GitHub, and starts it. It is also `verify`'s local runner (`foreman verify`). It is not part of the plugin: run it from a checkout of this repo, where every stage uses that checkout's skills. Needs [Lima](https://lima-vm.io) and [nono](https://nono.sh) for verify runs.
 
 ## Install
 
@@ -46,6 +50,7 @@ plugins/<plugin>/                     what an install carries, and nothing else
   .claude-plugin/plugin.json          the plugin
   skills/<skill>/SKILL.md             one folder per skill: the method in prose, its templates and assets beside it
   runtime/<skill>/                    the TypeScript a skill runs; Node's standard library only
+foreman/                              the local runner: the loop, and verify's runner; never installed with the plugin
 tests/<plugin>/runtime/<skill>/       the runtime's tests, mirroring the plugin
 tests/<plugin>/skills/<skill>/        a skill's fixtures and evals
 tests/repo/                           tests of the repo's own checks
@@ -76,7 +81,7 @@ yarn format           # oxfmt; format:check only checks
 yarn check:repo       # manifests, skill references, no tests in the plugin, runtime imports
 ```
 
-A test that needs a tool the machine lacks (`limactl`, `nono`) is skipped, and its name says which tool.
+`yarn test` also runs foreman's tests: its own with `node --test`, its verify runner's with Vitest. A test that needs a tool the machine lacks (`limactl`, `nono`) is skipped, and its name says which tool.
 
 Adding a skill: create `plugins/<plugin>/skills/<skill>/SKILL.md` with `name` and `description` frontmatter, where `name` matches the folder, and list it above. Supporting files are referenced relative to the skill's folder as `<skill dir>/…`, and its runtime code as `<runtime dir>/…`; the repo check fails when either names a file that does not exist. Adding a plugin: create `plugins/<plugin>/.claude-plugin/plugin.json` with `"skills": ["./skills/"]` and add an entry to `marketplace.json`.
 
