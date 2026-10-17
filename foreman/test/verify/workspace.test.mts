@@ -3,17 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  cacheFolder,
-  ensureTemplate,
-  openWorkspace,
-  parseRecipe,
-  RUNS,
-  templateName,
-  type Workspace,
-} from '../../../../plugins/sdlc/runtime/verify/workspace.mts';
-import type { LoggedCommand } from '../../../../plugins/sdlc/runtime/verify/workspace-shell.mts';
-import { needs, runtimeDir, temp } from './helpers.mts';
+import { cacheFolder, ensureTemplate, openWorkspace, parseRecipe, RUNS, templateName, type Workspace } from '../../src/verify/workspace.mts';
+import type { LoggedCommand } from '../../src/verify/workspace-shell.mts';
+import { needs, pluginDir as pluginPath, runnerDir, temp } from './helpers.mts';
 
 const q = (s: string) => `'${s.replaceAll("'", `'"'"'`)}'`;
 const section = (json: unknown) => `# Verify\n\n## Workspace\n\n\`\`\`json\n${JSON.stringify(json)}\n\`\`\`\n`;
@@ -79,7 +71,7 @@ describe('templateName', () => {
 });
 
 const t = needs('a command in the workspace VM', 'limactl');
-const pluginDir = realpathSync(join(runtimeDir, '../..'));
+const pluginDir = realpathSync(pluginPath);
 
 describe.skipIf(t.skip)(t.name, () => {
   let ws: Workspace & { name: string };
@@ -106,7 +98,7 @@ describe.skipIf(t.skip)(t.name, () => {
     writeFileSync(join(work, 'app.txt'), 'exported\n');
     mkdirSync(join(work, 'sub'));
     const template = ensureTemplate({ recipe: parseRecipe(null), log: () => {} });
-    ws = await openWorkspace({ template, work, stateDir, pluginDir, runtimeDir, caches: [], env: { TERM: 'dumb', GIVEN: 'placeholder' } });
+    ws = await openWorkspace({ template, work, stateDir, pluginDir, runnerDir, caches: [], env: { TERM: 'dumb', GIVEN: 'placeholder' } });
   }, 3_600_000);
 
   afterAll(async () => {

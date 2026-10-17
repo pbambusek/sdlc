@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseArgs, USAGE } from '../../../../plugins/sdlc/runtime/verify/args.mts';
+import { parseArgs, USAGE } from '../../src/verify/args.mts';
 
 describe('parseArgs', () => {
   it('takes a spec path and defaults the ref to HEAD', () => {

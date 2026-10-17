@@ -42,7 +42,7 @@ The build skill pushes and opens the PR; it never writes to Jira, never launches
 
 ## Verify stage
 
-Started by the tick as the verify skill's launcher, a detached process:
+Started by the tick as foreman's verify launcher (`src/verify/launch.mts`, see the README), a detached process:
 
 ```
 node launch.mts --claims <spec snapshot> --source <issue URL> --slug <KEY> [--copy …] <sha>

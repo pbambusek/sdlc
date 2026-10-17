@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { audit } from '../../../../plugins/sdlc/runtime/verify/audit.mts';
+import { audit } from '../../src/verify/audit.mts';
 import { temp } from './helpers.mts';
 
 type Call = { name: string; input: Record<string, unknown> };

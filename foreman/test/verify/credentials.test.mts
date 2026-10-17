@@ -1,15 +1,7 @@
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  type Declaration,
-  findValues,
-  parseDeclaration,
-  type Read,
-  readCredentials,
-  secretValues,
-  startProxy,
-} from '../../../../plugins/sdlc/runtime/verify/credentials.mts';
+import { type Declaration, findValues, parseDeclaration, type Read, readCredentials, secretValues, startProxy } from '../../src/verify/credentials.mts';
 import { needs, temp } from './helpers.mts';
 
 const verifyMd = (block: unknown) => `# VERIFY\n\n## Surface\n\nweb\n\n## Credentials\n\n\`\`\`json\n${JSON.stringify(block, null, 2)}\n\`\`\`\n\n## Other\n`;
