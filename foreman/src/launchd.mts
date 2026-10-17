@@ -5,8 +5,7 @@ import { homedir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { HOME } from './config.mts';
 
-// Named when foreman was sdlc-tick; kept so `foreman install` replaces an agent installed under the old name.
-export const LABEL = 'com.sdlc-tick';
+export const LABEL = 'com.sdlc.foreman';
 const plistPath = () => join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 const domain = () => `gui/${userInfo().uid}`;
 const bin = () => resolve(import.meta.dirname, '..', 'bin', 'foreman');

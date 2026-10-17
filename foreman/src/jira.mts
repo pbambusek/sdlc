@@ -5,8 +5,7 @@ import { adfToMarkdown, textToAdf, type AdfNode } from './adf.mts';
 import type { Config } from './config.mts';
 import type { ChangelogEntry, Comment } from './ledger.mts';
 
-// Named when foreman was sdlc-tick; kept so a token stored under the old name still reads.
-export const KEYCHAIN_SERVICE = 'sdlc-tick-jira';
+export const KEYCHAIN_SERVICE = 'foreman-jira';
 
 const token = (email: string): string => {
   if (process.env.JIRA_API_TOKEN) return process.env.JIRA_API_TOKEN;
