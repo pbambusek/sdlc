@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 
 /** The launcher's command line: what to verify, at which ref, and how. */
 export const USAGE =
-  'usage: foreman verify <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--interactive]';
+  'usage: foreman verify <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--model <id>] [--interactive]';
 
 export interface Options {
   exportOnly: boolean;
@@ -12,6 +12,8 @@ export interface Options {
   source: string | undefined;
   ref: string;
   copies: string[];
+  // The verifier's model; Claude Code's default when unset.
+  model: string | undefined;
   // The run folder's name: --slug, else the spec's file name, else `export` or `claims`, with anything but letters, digits and `-` folded to `-`.
   slug: string;
 }
@@ -39,5 +41,15 @@ export const parseArgs = (args: string[]): Options => {
     /[^a-zA-Z0-9-]+/g,
     '-',
   );
-  return { exportOnly, interactive: flags.has('--interactive'), spec, claimsFile, source: flags.get('--source') as string | undefined, ref, copies, slug };
+  return {
+    exportOnly,
+    interactive: flags.has('--interactive'),
+    spec,
+    claimsFile,
+    source: flags.get('--source') as string | undefined,
+    ref,
+    copies,
+    model: flags.get('--model') as string | undefined,
+    slug,
+  };
 };

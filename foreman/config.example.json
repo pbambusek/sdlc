@@ -21,6 +21,9 @@
   "feedback": {
     "skill": "/sdlc:feedback"
   },
+  "verify": {
+    "model": "<model id; Claude Code's default when left out>"
+  },
   "maxConcurrent": 2,
   "limits": { "maxBuilds": 5, "maxInvalidVerifies": 2, "maxFeedbackRuns": 2, "roundTimeoutMinutes": 120 }
 }

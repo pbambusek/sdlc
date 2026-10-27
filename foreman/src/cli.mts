@@ -70,8 +70,9 @@ const withLock = async (fn: () => Promise<void>) => {
 const main = async () => {
   switch (cmd) {
     case 'verify': {
-      // The launcher prints its own steps and exits with the run's code; foreman only passes it through.
-      const r = spawnSync(process.execPath, ['--use-system-ca', LAUNCHER, ...args], { stdio: 'inherit' });
+      // The launcher prints its own steps and exits with the run's code; foreman only passes it through, with the configured model unless --model names one.
+      const model = !args.includes('--model') && existsSync(configPath()) ? loadConfig().verify.model : undefined;
+      const r = spawnSync(process.execPath, ['--use-system-ca', LAUNCHER, ...args, ...(model ? ['--model', model] : [])], { stdio: 'inherit' });
       process.exitCode = r.status ?? 1;
       break;
     }

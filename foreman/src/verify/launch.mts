@@ -5,7 +5,7 @@
  *   foreman verify --claims <file> [--source <label>] [ref]
  *   foreman verify --export-only [ref]   (setup: export and copy into a workspace VM, print how to open a shell in it, start no session)
  * `foreman verify` runs this file; the tick runs it the same way for each round.
- *   options: --copy <path> (repeatable), --slug <name>, --interactive
+ *   options: --copy <path> (repeatable), --slug <name>, --model <id>, --interactive
  * The page lands in <repo>/.verify/<slug>/<timestamp>-<commit>/ and opens; VERIFY_NO_OPEN=1 keeps it closed.
  *
  * What keeps the verifier honest:
@@ -50,7 +50,7 @@ const options = (() => {
     return fail((e as Error).message);
   }
 })();
-const { exportOnly, claimsFile, spec, copies, slug, interactive, ref: refArg } = options;
+const { exportOnly, claimsFile, spec, copies, slug, model, interactive, ref: refArg } = options;
 
 const git = (repo: string, ...a: string[]) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8', maxBuffer: 1 << 30 }).trim();
 const repo = git(process.cwd(), 'rev-parse', '--show-toplevel');
@@ -292,6 +292,7 @@ const claudeArgs = [
   'dontAsk',
   '--append-system-prompt-file',
   join(skillDir, 'run.md'),
+  ...(model ? ['--model', model] : []),
 ];
 
 // The proxy runs in this process, so the session is never spawned synchronously: a blocked event loop would stall every request.

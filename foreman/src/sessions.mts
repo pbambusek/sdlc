@@ -249,7 +249,18 @@ export const launchVerify = (config: Config, repo: RepoConfig, issue: { key: str
     log,
     run: () => {
       git(repo.path, 'fetch', '--quiet', 'origin', sha);
-      const args = [LAUNCHER, '--claims', spec, '--source', issue.url, '--slug', issue.key, ...repo.verifyCopy.flatMap((c) => ['--copy', c]), sha];
+      const args = [
+        LAUNCHER,
+        '--claims',
+        spec,
+        '--source',
+        issue.url,
+        '--slug',
+        issue.key,
+        ...repo.verifyCopy.flatMap((c) => ['--copy', c]),
+        ...(config.verify.model ? ['--model', config.verify.model] : []),
+        sha,
+      ];
       const fd = openSync(log, 'a');
       writeFileSync(fd, `▶ foreman: verify ${issue.key} ${sha} attempt ${attempt}\n`);
       const tag = `${issue.key} #${attempt} ${sha.slice(0, 7)}`;

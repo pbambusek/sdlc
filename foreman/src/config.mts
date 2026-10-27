@@ -18,6 +18,8 @@ export interface Config {
   build: { skill: string; permissionMode?: string; disallowedTools: string[]; model?: string };
   /** The feedback skill's command; the tick adds the commit, PR, spec, verify run and output file. Permission mode and model default to the build's. */
   feedback: { skill: string; permissionMode?: string; model?: string };
+  /** The verifier's model, for the tick's runs and `foreman verify`; Claude Code's default when unset. */
+  verify: { model?: string };
   maxConcurrent: number;
   limits: Limits;
   /** Dollars per million tokens by model id, over the list prices in usage.mts: what stats and the status page charge. */
@@ -53,6 +55,7 @@ export const loadConfig = (): Config => {
     repos,
     build: { ...defaults.build, ...raw.build },
     feedback: { ...defaults.feedback, ...raw.feedback },
+    verify: { ...raw.verify },
     maxConcurrent: raw.maxConcurrent ?? defaults.maxConcurrent,
     limits: { ...defaults.limits, ...raw.limits },
     prices: { ...DEFAULT_PRICES, ...raw.prices },

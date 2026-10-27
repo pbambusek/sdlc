@@ -11,6 +11,7 @@ describe('parseArgs', () => {
       source: undefined,
       ref: 'HEAD',
       copies: [],
+      model: undefined,
       slug: 'backlog',
     });
   });
@@ -30,6 +31,10 @@ describe('parseArgs', () => {
 
   it('needs no spec for --export-only, and names the run export', () => {
     expect(parseArgs(['--export-only'])).toMatchObject({ exportOnly: true, spec: undefined, ref: 'HEAD', slug: 'export' });
+  });
+
+  it("takes the verifier's model from --model", () => {
+    expect(parseArgs(['s.md', '--model', 'claude-example-1', 'main'])).toMatchObject({ model: 'claude-example-1', ref: 'main' });
   });
 
   it('sets --interactive', () => {
