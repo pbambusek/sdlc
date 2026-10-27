@@ -13,7 +13,7 @@
  * Not closed: the VM reaches every service on the host's loopback (Lima's host.lima.internal), not only the run's proxy.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, X509Certificate } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { homedir, platform } from 'node:os';
@@ -100,20 +100,40 @@ export const workspaceMissing = (): string | null => {
 };
 
 /**
+ * The certificates in `pem` that can anchor TLS: marked as a CA and not expired at `now`. A keychain also holds device
+ * identities, leaves and expired roots, and one malformed certificate in the system bundle stops a strict TLS stack (workerd)
+ * from loading any of it.
+ */
+export const caRoots = (pem: string, now = new Date()): string =>
+  (pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [])
+    .filter((block) => {
+      try {
+        const cert = new X509Certificate(block);
+        return cert.ca && cert.validToDate > now;
+      } catch {
+        return false;
+      }
+    })
+    .map((block) => block + '\n')
+    .join('');
+
+/**
  * The host's trusted roots beyond the public ones, as PEM: a network that inspects TLS (a corporate proxy) re-signs every
  * site with its own root, and a fresh VM trusts nothing it hasn't been given.
  */
 export const hostRoots = (): string => {
   if (platform() === 'darwin') {
     const r = spawnSync('security', ['find-certificate', '-a', '-p', '/Library/Keychains/System.keychain'], { encoding: 'utf8' });
-    return r.status === 0 ? r.stdout : '';
+    return r.status === 0 ? caRoots(r.stdout) : '';
   }
   const dir = '/usr/local/share/ca-certificates';
   return existsSync(dir)
-    ? readdirSync(dir, { recursive: true, encoding: 'utf8' })
-        .filter((f) => f.endsWith('.crt'))
-        .map((f) => readFileSync(join(dir, f), 'utf8'))
-        .join('\n')
+    ? caRoots(
+        readdirSync(dir, { recursive: true, encoding: 'utf8' })
+          .filter((f) => f.endsWith('.crt'))
+          .map((f) => readFileSync(join(dir, f), 'utf8'))
+          .join('\n'),
+      )
     : '';
 };
 

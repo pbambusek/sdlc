@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cacheFolder, ensureTemplate, openWorkspace, parseRecipe, RUNS, templateName, type Workspace } from '../../src/verify/workspace.mts';
+import { caRoots, cacheFolder, ensureTemplate, openWorkspace, parseRecipe, RUNS, templateName, type Workspace } from '../../src/verify/workspace.mts';
 import type { LoggedCommand } from '../../src/verify/workspace-shell.mts';
 import { needs, pluginDir as pluginPath, runnerDir, temp } from './helpers.mts';
 
@@ -66,6 +66,36 @@ describe('cacheFolder', () => {
 
   it('reports a folder this machine does not have', () => {
     expect(cacheFolder('/no/such/cache', [])).toEqual({ outcome: 'missing', reason: '/no/such/cache does not exist on this machine' });
+  });
+});
+
+const openssl = needs('certificates made by openssl', 'openssl');
+describe.skipIf(openssl.skip)(openssl.name, () => {
+  let dir: string;
+  const cert = (name: string, ext: string) => {
+    const r = spawnSync(
+      'openssl',
+      ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, `${name}.key`), '-subj', `/CN=${name}`, '-days', '1', '-addext', ext],
+      { encoding: 'utf8' },
+    );
+    if (r.status !== 0) throw new Error(r.stderr);
+    return r.stdout;
+  };
+  let ca: string;
+  let leaf: string;
+  beforeAll(() => {
+    dir = temp('sdlc-roots-');
+    ca = cert('example-root', 'basicConstraints=critical,CA:TRUE');
+    leaf = cert('example-leaf', 'basicConstraints=critical,CA:FALSE');
+  });
+
+  it('keeps a CA and drops a leaf and a block that does not parse', () => {
+    const broken = '-----BEGIN CERTIFICATE-----\nMIIBAAAA\n-----END CERTIFICATE-----';
+    expect(caRoots([leaf, ca, broken].join('\n'))).toBe(ca);
+  });
+
+  it('drops a CA that has expired', () => {
+    expect(caRoots(ca, new Date(Date.now() + 3 * 86_400_000))).toBe('');
   });
 });
 
