@@ -11,8 +11,8 @@
   "scripts": {
     "test": "vitest run",
     "lint": "oxlint --deny-warnings plugins tests foreman .github",
-    "format": "oxfmt plugins/sdlc/runtime tests foreman .github",
-    "format:check": "oxfmt --check plugins/sdlc/runtime tests foreman .github",
+    "format": "oxfmt plugins/sdlc/skills/*/scripts tests foreman .github",
+    "format:check": "oxfmt --check plugins/sdlc/skills/*/scripts tests foreman .github",
     "check:repo": "node .github/check.mjs"
   },
   "devDependencies": {

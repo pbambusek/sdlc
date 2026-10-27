@@ -1,7 +1,7 @@
 /**
  * Stands in for Claude Code in the launcher's tests. It records how it was started, runs a scripted list of commands the way
  * Claude Code's Bash tool does (through CLAUDE_CODE_SHELL_PREFIX, with a script ending in `eval <command>` and
- * `pwd -P >| <file>`), and writes a transcript where Claude Code keeps it. `$RUNTIME` in a command is the runtime's folder.
+ * `pwd -P >| <file>`), and writes a transcript where Claude Code keeps it. `$SCRIPTS` in a command is the verify skill's scripts folder.
  *   FAKE_CLAUDE_COMMANDS: a JSON file with the commands; FAKE_CLAUDE_RECORD: where to write the record.
  */
 import { spawnSync } from 'node:child_process';
@@ -13,9 +13,9 @@ import { dirname, join } from 'node:path';
 const args = process.argv.slice(2);
 const opt = (name: string) => args[args.indexOf(name) + 1]!;
 const sessionId = opt('--session-id');
-const runtime = join(dirname(opt('--append-system-prompt-file')), '../../runtime/verify');
+const scripts = join(dirname(opt('--append-system-prompt-file')), 'scripts');
 const prefix = process.env.CLAUDE_CODE_SHELL_PREFIX!;
-const commands = (JSON.parse(readFileSync(process.env.FAKE_CLAUDE_COMMANDS!, 'utf8')) as string[]).map((c) => c.replaceAll('$RUNTIME', runtime));
+const commands = (JSON.parse(readFileSync(process.env.FAKE_CLAUDE_COMMANDS!, 'utf8')) as string[]).map((c) => c.replaceAll('$SCRIPTS', scripts));
 const q = (s: string) => `'${s.replaceAll("'", `'"'"'`)}'`;
 const cwdFile = join(tmpdir(), `fake-claude-${process.pid}-cwd`);
 

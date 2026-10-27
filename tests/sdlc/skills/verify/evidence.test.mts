@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { type Claim, claimStatus, validate } from '../../../../plugins/sdlc/runtime/verify/evidence.mts';
+import { type Claim, claimStatus, validate } from '../../../../plugins/sdlc/skills/verify/scripts/evidence.mts';
 import { skillDir } from './helpers.mts';
 
 const example = () => JSON.parse(readFileSync(join(skillDir, 'assets/example/evidence.json'), 'utf8'));

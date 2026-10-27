@@ -1,12 +1,12 @@
 # Rules for this repo
 
-This repo is the sdlc plugin: skills, the runtime they call, and the tests for both. The layout is in [README.md](README.md#layout). These rules hold for every change, by a person or an agent.
+This repo is the sdlc plugin: skills, the scripts they run, and the tests for both. The layout is in [README.md](README.md#layout). These rules hold for every change, by a person or an agent.
 
-## Skills are prose; anything that runs is runtime
+## Skills are prose; anything that runs is a script
 
-A skill holds the method: instructions, honesty rules, claims and evidence rules, templates. It embeds no logic. Anything that runs (parsing, launching, scanning, building a page) belongs in `plugins/<plugin>/runtime/<skill>/`, with tests under `tests/<plugin>/runtime/<skill>/`. A skill calls it by path, as `node <runtime dir>/<file>.mts`.
+A skill holds the method: instructions, honesty rules, claims and evidence rules, templates. It embeds no logic. Anything that runs (parsing, launching, scanning, building a page) is a script in the skill's own folder, `plugins/<plugin>/skills/<skill>/scripts/`, with tests under `tests/<plugin>/skills/<skill>/`. A skill calls it by path, as `node <skill dir>/scripts/<file>.mts`. The plugin has no `runtime` folder.
 
-The runtime imports only Node's standard library and other runtime files, and runs on Node 24 with no install and no build step. Development tooling (Yarn, Vitest, oxlint, oxfmt) stays at the repo root.
+A script imports only Node's standard library and other files of its skill, and runs on Node 24 with no install and no build step. Development tooling (Yarn, Vitest, oxlint, oxfmt) stays at the repo root.
 
 Tests, fixtures and evals never go inside `plugins/`, so an install never carries them. `yarn check:repo` fails when they do.
 

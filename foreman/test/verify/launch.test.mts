@@ -197,7 +197,7 @@ describe.skipIf(lima.skip)(lima.name, () => {
         onFeature: { 'VERIFY.md': `${VERIFY_MD}\nChanged by the feature.\n`, 'pkg/VERIFY.md': 'new\n' },
       });
       const r = claims(dir, {
-        commands: ['cat VERIFY.md; ls pkg/VERIFY.md 2>&1', '(sleep 600 &); echo started', 'env', writeEvidence, 'node $RUNTIME/build-page.mts'],
+        commands: ['cat VERIFY.md; ls pkg/VERIFY.md 2>&1', '(sleep 600 &); echo started', 'env', writeEvidence, 'node $SCRIPTS/build-page.mts'],
         timeout: VM_LAUNCH,
       });
       keep(r.err);

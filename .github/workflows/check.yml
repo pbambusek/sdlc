@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 jobs:
-  # The marketplace, the plugin's skills and references, and the runtime's imports. Needs Node alone, no install.
+  # The marketplace, the plugin's skills and references, and the scripts' imports. Needs Node alone, no install.
   check:
     runs-on: ubuntu-latest
     steps:

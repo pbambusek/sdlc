@@ -28,12 +28,20 @@ describe('the repo check', () => {
     expect(out.status).toBe(0);
   });
 
-  it('names the skill file and the path when a skill names a runtime file that does not exist', () => {
+  it('names the skill file and the path when a skill names a script that does not exist', () => {
     const dir = copy();
-    appendFileSync(join(dir, verify, 'run.md'), '\nRun `node <runtime dir>/missing.mts`.\n');
+    appendFileSync(join(dir, verify, 'run.md'), '\nRun `node <skill dir>/scripts/missing.mts`.\n');
     const out = check(dir);
     expect(out.status).toBe(1);
-    expect(out.stderr).toContain(`${verify}/run.md: names <runtime dir>/missing.mts, which does not exist (plugins/sdlc/runtime/verify/missing.mts)`);
+    expect(out.stderr).toContain(`${verify}/run.md: names <skill dir>/scripts/missing.mts, which does not exist (${verify}/scripts/missing.mts)`);
+  });
+
+  it('names a runtime folder in the plugin', () => {
+    const dir = copy();
+    mkdirSync(join(dir, 'plugins/sdlc/runtime'));
+    const out = check(dir);
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("plugins/sdlc/runtime: a skill's scripts live in its own folder, not in a runtime folder");
   });
 
   it('names a broken `<skill dir>` path and a broken relative link', () => {
@@ -46,25 +54,26 @@ describe('the repo check', () => {
 
   it('names a test file and a fixtures folder inside the plugin', () => {
     const dir = copy();
-    writeFileSync(join(dir, 'plugins/sdlc/runtime/verify/audit.test.mts'), '');
+    writeFileSync(join(dir, verify, 'scripts/audit.test.mts'), '');
     mkdirSync(join(dir, verify, 'fixtures'));
     const out = check(dir);
     expect(out.status).toBe(1);
-    expect(out.stderr).toContain('plugins/sdlc/runtime/verify/audit.test.mts: tests, fixtures and evals live under tests/');
+    expect(out.stderr).toContain(`${verify}/scripts/audit.test.mts: tests, fixtures and evals live under tests/`);
     expect(out.stderr).toContain(`${verify}/fixtures: tests, fixtures and evals live under tests/`);
   });
 
-  it('names a runtime file that imports a package or reaches outside the runtime', () => {
+  it("names a script that imports a package or reaches outside its skill's folder", () => {
     const dir = copy();
     writeFileSync(
-      join(dir, 'plugins/sdlc/runtime/verify/extra.mts'),
-      "import { z } from 'zod';\nimport x from '../../skills/verify/x.mts';\nimport { join } from 'node:path';\n",
+      join(dir, verify, 'scripts/extra.mts'),
+      "import { z } from 'zod';\nimport x from '../../spec/x.mts';\nimport e from './evidence.mts';\nimport { join } from 'node:path';\n",
     );
     const out = check(dir);
     expect(out.status).toBe(1);
-    expect(out.stderr).toContain('plugins/sdlc/runtime/verify/extra.mts: imports "zod"');
-    expect(out.stderr).toContain('plugins/sdlc/runtime/verify/extra.mts: imports "../../skills/verify/x.mts"');
+    expect(out.stderr).toContain(`${verify}/scripts/extra.mts: imports "zod"`);
+    expect(out.stderr).toContain(`${verify}/scripts/extra.mts: imports "../../spec/x.mts"`);
     expect(out.stderr).not.toContain('node:path');
+    expect(out.stderr).not.toContain('./evidence.mts');
   });
 
   it('names a skill whose name does not match its folder', () => {

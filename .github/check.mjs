@@ -1,8 +1,9 @@
 // Checks the marketplace and every plugin it lists:
 //   - manifests parse, sources exist, and each skill folder has a SKILL.md whose `name` matches the folder and which has a description;
-//   - every file a skill's Markdown names (`<skill dir>/…`, `<runtime dir>/…`, or a relative link) exists;
+//   - every file a skill's Markdown names (`<skill dir>/…`, or a relative link) exists;
 //   - the plugin holds no tests, fixtures or evals, so installs never carry them;
-//   - runtime code imports only Node's standard library and other runtime files, so it runs without an install.
+//   - the plugin has no `runtime` folder: a skill's scripts live inside its own folder;
+//   - a skill's scripts import only Node's standard library and other files of that skill, so they run without an install.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
@@ -32,7 +33,7 @@ for (const plugin of marketplace?.plugins ?? []) {
   if (!manifest) continue;
   if (manifest.name !== plugin.name) problems.push(`${root}: plugin.json name "${manifest.name}" is not "${plugin.name}"`);
   const skillsRoots = (manifest.skills ?? ['./skills/']).map((s) => join(root, s));
-  const runtime = join(root, 'runtime');
+  if (existsSync(join(root, 'runtime'))) problems.push(`${join(root, 'runtime')}: a skill's scripts live in its own folder, not in a runtime folder`);
 
   for (const skillsRoot of skillsRoots) {
     const skills = existsSync(skillsRoot) ? readdirSync(skillsRoot, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')) : [];
@@ -52,13 +53,23 @@ for (const plugin of marketplace?.plugins ?? []) {
         const text = readFileSync(md, 'utf8');
         const named = [
           ...[...text.matchAll(/<skill dir>\/([\w./-]*[\w/])/g)].map((m) => [m[0], join(skillDir, m[1])]),
-          ...[...text.matchAll(/<runtime dir>\/([\w./-]*[\w/])/g)].map((m) => [m[0], join(runtime, name, m[1])]),
           // Relative links outside fenced code, where examples may show links that are not this repo's.
           ...[...text.replace(/^```[\s\S]*?^```/gm, '').matchAll(/\]\(([^)\s#]+)(#[^)]*)?\)/g)]
             .filter((m) => !/^[a-z]+:/i.test(m[1]) && !m[1].includes('<'))
             .map((m) => [m[1], join(dirname(md), m[1])]),
         ];
         for (const [as, path] of named) if (!existsSync(path)) problems.push(`${md}: names ${as}, which does not exist (${path})`);
+      }
+
+      for (const file of walk(skillDir).filter((p) => /\.[cm]?[jt]s$/.test(p))) {
+        const text = readFileSync(file, 'utf8');
+        const specifiers = [
+          ...text.matchAll(/(?:^|\s)(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]|^import\s+['"]([^'"]+)['"]/gm),
+        ].map((m) => m[1] ?? m[2] ?? m[3]);
+        for (const s of specifiers) {
+          const ok = s.startsWith('node:') || (s.startsWith('.') && inside(resolve(dirname(file), s), resolve(skillDir)));
+          if (!ok) problems.push(`${file}: imports "${s}"; a skill's scripts may import only node: modules and other files of the skill`);
+        }
       }
     }
   }
@@ -68,18 +79,6 @@ for (const plugin of marketplace?.plugins ?? []) {
     if (statSync(p).isDirectory() ? TEST_DIR.has(name) : TEST_FILE.test(name))
       problems.push(`${p}: tests, fixtures and evals live under tests/, outside the plugin, so installs never carry them`);
   }
-
-  if (existsSync(runtime))
-    for (const file of walk(runtime).filter((p) => /\.[cm]?[jt]s$/.test(p))) {
-      const text = readFileSync(file, 'utf8');
-      const specifiers = [
-        ...text.matchAll(/(?:^|\s)(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]|^import\s+['"]([^'"]+)['"]/gm),
-      ].map((m) => m[1] ?? m[2] ?? m[3]);
-      for (const s of specifiers) {
-        const ok = s.startsWith('node:') || (s.startsWith('.') && inside(resolve(dirname(file), s), resolve(runtime)));
-        if (!ok) problems.push(`${file}: imports "${s}"; the runtime may import only node: modules and other runtime files`);
-      }
-    }
 }
 for (const p of problems) console.error(p);
 process.exit(problems.length > 0 ? 1 : 0);

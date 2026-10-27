@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runtimeDir, skillDir, temp } from './helpers.mts';
+import { scriptsDir, skillDir, temp } from './helpers.mts';
 
 /** A run folder's `.verify` holding the skill's example evidence and the launcher's target file. */
 const runFolder = () => {
@@ -11,7 +11,7 @@ const runFolder = () => {
   writeFileSync(join(dir, 'target.json'), JSON.stringify({ ref: 'main', commit: 'abc1234def', source: 'specs/feature.md', ranAt: '2026-01-01T00:00:00Z' }));
   return dir;
 };
-const build = (dir: string) => spawnSync(process.execPath, [join(runtimeDir, 'build-page.mts'), dir], { encoding: 'utf8' });
+const build = (dir: string) => spawnSync(process.execPath, [join(scriptsDir, 'build-page.mts'), dir], { encoding: 'utf8' });
 // The page carries its data as JSON in one script block.
 const pageData = (dir: string) =>
   JSON.parse(

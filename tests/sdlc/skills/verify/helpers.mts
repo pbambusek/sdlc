@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach } from 'vitest';
 
-export const runtimeDir = fileURLToPath(new URL('../../../../plugins/sdlc/runtime/verify/', import.meta.url));
 export const skillDir = fileURLToPath(new URL('../../../../plugins/sdlc/skills/verify/', import.meta.url));
+export const scriptsDir = join(skillDir, 'scripts');
 
 const temps: string[] = [];
 /** A new empty folder, removed after the test. */

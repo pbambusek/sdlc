@@ -1,7 +1,7 @@
 /**
  * Builds `<dir>/evidence.html` from `<dir>/evidence.json` and the locked template, inlining every screenshot, and prints
  * the summary: the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason.
- * Usage: `node <runtime dir>/build-page.mts [dir, default .verify]`, from the run folder.
+ * Usage: `node <skill dir>/scripts/build-page.mts [dir, default .verify]`, from the run folder.
  * Exits 1 and lists every problem when the evidence is malformed. The target and the source come from the runner's
  * `target.json`, and its audit becomes the page's trust line. A screenshot cited by several claims is embedded once.
  */
@@ -70,7 +70,7 @@ const page = {
   images,
   credentialRequests,
 };
-const template = readFileSync(new URL('../../skills/verify/assets/evidence.html', import.meta.url), 'utf8');
+const template = readFileSync(new URL('../assets/evidence.html', import.meta.url), 'utf8');
 const placeholder = '<script type="application/json" id="evidence">null</script>';
 // `<` is escaped so no string in the evidence can close the script block early.
 const json = JSON.stringify(page).replaceAll('<', '\\u003c');

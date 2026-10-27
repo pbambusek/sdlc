@@ -144,7 +144,7 @@ const stateDir = realpathSync(mkdtempSync(join(RUNS, 'l-')));
 const runnerDir = realpathSync(import.meta.dirname);
 const pluginDir = realpathSync(resolve(runnerDir, '../../../plugins/sdlc'));
 const skillDir = join(pluginDir, 'skills/verify');
-const runtimeDir = join(pluginDir, 'runtime/verify');
+const scriptsDir = join(skillDir, 'scripts');
 // The owner's Claude Code keeps session transcripts and auto-memory under its config dir's `projects/`.
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 // A declared cache is a tool's packages: one that reaches how the code was written stops the launch.
@@ -249,7 +249,6 @@ const credentialLines = reads.map(
 const prompt = [
   `Verify commit ${commit} (${ref}) against the claims below. They come from ${source}, unchanged.`,
   `The skill's folder is ${skillDir}.`,
-  `The runtime's folder is ${runtimeDir}.`,
   `${ws.summary} It has Docker of its own. Each command you run is logged with its exit status.`,
   "Your tools: `Bash` runs a command in the workspace, and `Read` views an image the workspace saved. `playwright-cli` opens Playwright's own Chromium, set as the default: the workspace has no Google Chrome.",
   `You run ${interactive ? 'interactive' : 'headless'}.`,
@@ -396,7 +395,7 @@ if (!existsSync(join(verifyDir, 'evidence.json'))) {
 const out = join(repo, '.verify', slug, run);
 mkdirSync(out, { recursive: true });
 if (existsSync(credentialLog)) copyFileSync(credentialLog, join(verifyDir, 'credential-requests.jsonl'));
-const built = spawnSync('node', [join(runtimeDir, 'build-page.mts'), '.verify'], { cwd: work, stdio: 'inherit' });
+const built = spawnSync('node', [join(scriptsDir, 'build-page.mts'), '.verify'], { cwd: work, stdio: 'inherit' });
 for (const f of ['evidence.html', 'audit.json', 'shots', 'credential-requests.jsonl']) {
   if (existsSync(join(verifyDir, f))) cpSync(join(verifyDir, f), join(out, f), { recursive: true });
 }
