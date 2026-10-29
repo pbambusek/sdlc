@@ -14,4 +14,4 @@ How to read what CI and review say about a commit of <project>, which the feedba
 
 ## Review
 
-<Whose reviews count, and which to skip (a bot that only summarises). How a reviewer marks severity, when it isn't critical / warning / nit. Which parts of a review are not requested changes.>
+<Whose reviews count, and which to skip (a bot that only summarises). How a reviewer marks a comment (such as `nit:`). Which parts of a review are not requested changes.>
