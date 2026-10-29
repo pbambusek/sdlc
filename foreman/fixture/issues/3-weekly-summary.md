@@ -1,6 +1,6 @@
 # Owners get a weekly summary of their ideas
 
-> **Building this?** The claims are the acceptance criteria; how to meet them is your call. When a claim is unclear, conflicts with another, or stops fitting what you learn, ask on this issue and wait for the spec to be updated. A linked prototype shows the intended look and wording; where it and a claim differ, the claim wins.
+> **Building this?** The claims are the acceptance criteria; how to meet them is your call. When a claim is unclear, conflicts with another, or stops fitting what you learn, ask, and finish what doesn't depend on the answer. A linked prototype shows the intended look and wording; where it and a claim differ, the claim wins.
 
 ## Intent
 

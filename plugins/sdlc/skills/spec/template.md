@@ -3,7 +3,7 @@
 Plain Markdown, so it works as a Jira or GitHub issue description. The issue title is the feature, stated as an outcome ("Any employee can propose an idea to the backlog").
 
 ```markdown
-> **Building this?** The claims are the acceptance criteria; how to meet them is your call. When a claim is unclear, conflicts with another, or stops fitting what you learn, ask on this issue and wait for the spec to be updated. A linked prototype shows the intended look and wording; where it and a claim differ, the claim wins.
+> **Building this?** The claims are the acceptance criteria; how to meet them is your call. When a claim is unclear, conflicts with another, or stops fitting what you learn, ask, and finish what doesn't depend on the answer. A linked prototype shows the intended look and wording; where it and a claim differ, the claim wins.
 
 ## Intent
 <One or two sentences: the end state once this exists, and for whom.>
