@@ -1,6 +1,7 @@
-// Reading a finished verify run from <repo>/.verify/<KEY>/<timestamp>-<sha7>/ into one result.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Reading a finished verify run from the feature's archive into one result.
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { HOME } from './config.mts';
 import type { Evidence, Launch, Result } from './types.mts';
 
 interface EvidenceJson {
@@ -10,12 +11,6 @@ interface EvidenceJson {
 // The same rule as the evidence page: not shown if any item is not shown, shown when every item is, blocked otherwise.
 const claimStatus = (items: { status: string }[]) =>
   items.some((i) => i.status === 'not-shown') ? 'not-shown' : items.every((i) => i.status === 'shown') ? 'shown' : 'blocked';
-
-/** The launcher names a run `<ISO time with - for :>-<sha7>`. */
-const runTime = (name: string) => {
-  const m = name.match(/^(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\dZ)-[0-9a-f]{7}$/);
-  return m ? new Date(`${m[1]}:${m[2]}:${m[3]}`).toISOString() : null;
-};
 
 /** Only a run with no evidence is invalid. A flagged audit is a warning: the claims keep the status their evidence gives them. */
 export const classify = (evidence: EvidenceJson | null, audit: { clean: boolean; verdict: string } | null): { result: Result; summary: string } => {
@@ -30,23 +25,17 @@ export const classify = (evidence: EvidenceJson | null, audit: { clean: boolean;
   return { result, summary: lines.join('\n') };
 };
 
+/** Where the tick has the launcher write a verify run: the feature's archive, named after the launch's log. */
+export const verifyRunDir = (key: string, log: string) => join(HOME, 'archive', key, 'verify', basename(log).replace(/-verify\.log$/, ''));
+
 /**
- * The result of the last verify launch for `sha`: its run folder if one appeared after the launch,
- * or `invalid` when the launcher has stopped without writing one.
+ * The result of the last verify launch for `sha`: its run folder, or `invalid` when the launcher has stopped without writing one.
  */
-export const findEvidence = (repoPath: string, key: string, sha: string, launch: Launch, launcherRunning: boolean): Evidence | null => {
+export const findEvidence = (key: string, sha: string, launch: Launch, launcherRunning: boolean): Evidence | null => {
   // The launcher copies the run folder file by file at the end; read it only once the launcher has exited.
   if (launcherRunning) return null;
-  const root = join(repoPath, '.verify', key);
-  const runs = existsSync(root)
-    ? readdirSync(root)
-        .filter((n) => n.endsWith(`-${sha.slice(0, 7)}`))
-        .map((n) => ({ n, at: runTime(n) }))
-        .filter((r): r is { n: string; at: string } => !!r.at && r.at >= launch.at.slice(0, 19))
-        .sort((a, b) => a.at.localeCompare(b.at))
-    : [];
-  const run = runs.pop();
-  if (!run) {
+  const dir = launch.log ? verifyRunDir(key, launch.log) : null;
+  if (!dir || !existsSync(dir)) {
     return {
       sha,
       at: new Date().toISOString(),
@@ -56,8 +45,7 @@ export const findEvidence = (repoPath: string, key: string, sha: string, launch:
       log: launch.log ?? null,
     };
   }
-  const dir = join(root, run.n);
   const read = <T,>(f: string): T | null => (existsSync(join(dir, f)) ? (JSON.parse(readFileSync(join(dir, f), 'utf8')) as T) : null);
   const { result, summary } = classify(read<EvidenceJson>('evidence.json'), read<{ clean: boolean; verdict: string }>('audit.json'));
-  return { sha, at: run.at, result, summary: `${summary}\nEvidence: ${join(dir, 'evidence.html')}`, dir, log: launch.log ?? null };
+  return { sha, at: launch.at, result, summary: `${summary}\nEvidence: ${join(dir, 'evidence.html')}`, dir, log: launch.log ?? null };
 };

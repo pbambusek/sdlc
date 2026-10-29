@@ -67,7 +67,6 @@ export const observe = async (config: Config, jira: Jira, issue: Issue, sessions
   const evidence =
     repo && pr && lastVerify
       ? findEvidence(
-          repo.path,
           issue.key,
           pr.head,
           lastVerify,

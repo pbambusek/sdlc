@@ -12,7 +12,7 @@ Tests, fixtures and evals never go inside `plugins/`, so an install never carrie
 
 ## The same wherever it runs
 
-A skill's inputs, outputs and project files (`VERIFY.md`, `FEEDBACK.md`, `PROTOTYPE.md`) are the same whatever runner invokes it: a person in a local session, an orchestrator, or a platform. Only the runner differs. A change that needs a runner to behave differently changes the runner, not the skill's contract.
+A skill's inputs, outputs and project files (`VERIFY.md`, `FEEDBACK.md`, `PROTOTYPE.md`) are the same whatever runner invokes it: a person in a local session, an orchestrator, or a platform. Only the runner differs. Every file a skill writes goes to `--out` when the caller passes one, else to the skill's default: a gitignored folder in the repo, or the session. A change that needs a runner to behave differently changes the runner, not the skill's contract.
 
 A skill names no runner, workspace provider, operating system or proxy. It states what it needs from whoever runs it; each runner keeps that in its own way and documents how. `foreman/` is the local runner: it lives outside the plugin, may use any tool its machine has, and never ships in an install.
 

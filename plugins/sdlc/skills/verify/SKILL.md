@@ -23,7 +23,7 @@ The session that asks for verification may be the one that wrote the code. It ha
 
    When the request holds no source, ask for one sentence of what should be true. Never write claims yourself.
 2. **Target.** A branch, tag or commit; the current branch when none is named. A run verifies a commit, so uncommitted changes are not verified: say so when the working tree has any.
-3. **Start** the run with the runner, with each gitignored file the root `VERIFY.md` says a run needs. A run takes minutes, so run it in the background.
+3. **Start** the run with the runner, with each gitignored file the root `VERIFY.md` says a run needs, and the `--out` folder when the caller names one. A run takes minutes, so run it in the background.
 4. **Report** what the runner returned: the page path, the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason. When the audit flagged tool calls, name them: a person judges whether the evidence still counts. When it stopped before starting the verifier, there is no page: report what it said, and that the run needs the project, its `VERIFY.md` or the runner's machine fixed first.
 
 ## What a runner guarantees
@@ -37,4 +37,4 @@ Every runner keeps these, each in its own way, and states on the page how it kep
 - **The instructions come from the default branch.** A run executes the commit's own code, so it doesn't take its instructions from that commit too: it follows the project's `VERIFY.md` files as they are on the remote's default branch when it starts. When the commit changes any of them, the run names each one and follows the default branch's version: a change to `VERIFY.md` goes to the default branch in its own pull request first. When the default branch has no `VERIFY.md` at its root, or can't be read, no run starts.
 - **The verifier's reach is checked.** The runner states what its confinement leaves open, and checks the session for any attempt to reach how the code was written: git history, a PR, a ticket, a connector. The page lists every such attempt as a warning for a person to judge; each claim keeps the status its evidence gives it.
 
-The page and its evidence land in `<repo>/.verify/<slug>/<timestamp>-<commit>/`, which the project gitignores, with the verified commit under `target` in `evidence.json` and the runner's statements and verdict in `audit.json`. Sharing it is the caller's decision.
+The page and its evidence land in the `--out` folder, else in `<repo>/.verify/<slug>/<timestamp>-<commit>/`, which the project gitignores, with the verified commit under `target` in `evidence.json` and the runner's statements and verdict in `audit.json`. Sharing it is the caller's decision.

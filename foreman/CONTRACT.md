@@ -28,7 +28,7 @@ The `build` skill's own contract (its inputs, its result file, what it never doe
 2. It starts a background Claude Code session in that worktree:
 
    ```
-   claude --bg --session-id <uuid> -n "sdlc:build <KEY> #<n>" -- "/sdlc:build <spec snapshot> --source <issue URL> [--branch <PR branch>] [--feedback <archived feedback output>] --result <file> --headless"
+   claude --bg --session-id <uuid> -n "sdlc:build <KEY> #<n>" -- "/sdlc:build <spec snapshot> --source <issue URL> [--branch <PR branch>] [--feedback <archived feedback output>] --out <file> --headless"
    ```
 
    The spec snapshot is `~/.sdlc/runs/<KEY>/spec-<approval time>.md`, the issue's title and description as approved; verify and feedback get the same file. `--feedback` is the archived output of the round that asked for fixes (`~/.sdlc/archive/<KEY>/feedback/<file>`), passed on a fix round only.
@@ -48,7 +48,7 @@ Started by the tick as foreman's verify launcher (`src/verify/launch.mts`, see t
 node launch.mts --claims <spec snapshot> --source <issue URL> --slug <KEY> [--copy …] <sha>
 ```
 
-The launcher runs as it always does. Its run folder `<repo>/.verify/<KEY>/<time>-<sha7>/` is the result: the tick reads `evidence.json` and `audit.json` once the launcher has exited.
+The launcher runs as it always does, with `--out` set to `archive/<KEY>/verify/<the launch log's name>/`. That run folder is the result: the tick reads `evidence.json` and `audit.json` once the launcher has exited.
 
 | Run                                            | Result                                 |
 | ---------------------------------------------- | -------------------------------------- |

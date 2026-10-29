@@ -5,7 +5,7 @@ description: UI prototype — a clickable, self-contained HTML file showing a pr
 
 # Prototype a UI change
 
-Build a throwaway, clickable prototype of a change to a web app's page in `.prototype/<slug>/index.html`. The file is self-contained: one HTML file with no sibling files, so it travels as a ticket attachment or a spec appendix. It may link public resources, so a reader may need internet. `.prototype/` is gitignored; attaching, linking or sharing the file is the caller's decision.
+Build a throwaway, clickable prototype of a change to a web app's page in the `--out` file when the caller names one, else in `<repo>/.prototype/<slug>/index.html`. The file is self-contained: one HTML file with no sibling files, so it travels as a ticket attachment or a spec appendix. It may link public resources, so a reader may need internet. `.prototype/` is gitignored; attaching, linking or sharing the file is the caller's decision.
 
 When the repo has no `PROTOTYPE.md` at its root, set the project up with [setup.md](setup.md) before anything else. Say so in one line as you start ("No PROTOTYPE.md here, setting the project up first."), so the user can stop you. Then build the prototype.
 
@@ -26,15 +26,15 @@ The app's facts live in `PROTOTYPE.md`, written from [assets/prototype-template.
 
 ## Steps
 
-`<scratch>` is `$CLAUDE_JOB_DIR/tmp` when set, else a `mktemp -d` folder. Captures, screenshots and the Artifact copy go there, never into the repo. Run `playwright-cli --help` for the browser commands.
+`<scratch>` is a temporary folder (`mktemp -d`). Captures, screenshots and the Artifact copy go there, never into the repo. Run `playwright-cli --help` for the browser commands.
 
 1. **Frame.** Write the question, the host app, and the host page URL as one line each. Pick a kebab-case slug. Ask the user only if the question or the host page is unclear. Read the root `PROTOTYPE.md` and the host app's profile. Done when all three lines are concrete and the profile is read.
 2. **Check prerequisites.** The host URL answers `200` (`curl -s -o /dev/null -w '%{http_code}' <url>`); if not, start the app as **Host** says. `playwright-cli --version` prints a version; if not, ask the user to install `@playwright/cli` globally. Done when both pass.
 3. **Capture.** With `playwright-cli`, open the host URL as **Access** says and save to `<scratch>/capture`: a screenshot at each **Viewports** size, a full-page screenshot at the widest, and an accessibility snapshot. When the app has several themes, screenshot the widest size in each. If the change touches a dialog or another state of the host page, open it and screenshot it too. Note each icon the page shows, and the ones the change adds. Done when you can name every **Shell** element, every section of the host page, and the icon beside each.
 4. **Collect the look.** Read **Look**, **Fonts** and **Icons**, and gather what each says: the design values for every theme with values unchanged, the font loading, and the markup or source for every icon from step 3. Done when you hold a value for each design token the page uses, in every theme, and the markup for every icon.
-5. **Build** `.prototype/<slug>/index.html`, following [File structure](#file-structure). Copy the host page's real content first, then add the change under test. Done when every part of File structure is present and no placeholder text remains.
-6. **Check.** Serve the folder on localhost (`python3 -m http.server --directory .prototype/<slug> <port>`, in the background); browsers and `playwright-cli` refuse `file://` pages. Open each `#state` with `playwright-cli`, with `localStorage` cleared, and screenshot it at each **Viewports** size, and at the widest size in each theme. Read every screenshot and compare the default state with the capture. If a state looks blank or broken, read the browser console; it covers only the current page load, so read it after each navigation. Fix and re-check. Done when each state matches the live page's look, shows the change, and has no sideways scroll at the narrowest size. Stop the server.
-7. **Report.** Give the file path, the command to open it, the `#state` links, and the Artifact URL if published. Say that `.prototype/` is gitignored, and that the file can be attached to a ticket as it is.
+5. **Build** the prototype file, following [File structure](#file-structure). Copy the host page's real content first, then add the change under test. Done when every part of File structure is present and no placeholder text remains.
+6. **Check.** Serve the folder on localhost (`python3 -m http.server --directory <its folder> <port>`, in the background); browsers and `playwright-cli` refuse `file://` pages. Open each `#state` with `playwright-cli`, with `localStorage` cleared, and screenshot it at each **Viewports** size, and at the widest size in each theme. Read every screenshot and compare the default state with the capture. If a state looks blank or broken, read the browser console; it covers only the current page load, so read it after each navigation. Fix and re-check. Done when each state matches the live page's look, shows the change, and has no sideways scroll at the narrowest size. Stop the server.
+7. **Report.** Give the file path, the command to open it, the `#state` links, and the Artifact URL if published. When it is in `.prototype/`, say that the folder is gitignored. Say that the file can be attached to a ticket as it is.
 
 ## File structure
 

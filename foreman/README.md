@@ -55,7 +55,7 @@ A verify run is foreman's launcher, a detached process running a headless sessio
 
 ```
 bin/foreman verify <spec path> [ref]
-bin/foreman verify --claims <file> [--source <label>] [ref]   options: --copy <path>, --slug <name>, --model <id>, --interactive
+bin/foreman verify --claims <file> [--source <label>] [ref]   options: --copy <path>, --slug <name>, --out <folder>, --model <id>, --interactive
 bin/foreman verify --export-only [ref]                        setup: a workspace like a run's, and how to open a shell in it
 ```
 
@@ -100,7 +100,7 @@ The agent is `~/Library/LaunchAgents/com.sdlc.foreman.plist`. A tick writes the 
 - `work/`: the worktrees of running builds.
 - `runs/<KEY>/`: the spec snapshot of each approval, each build's result file (read once, when the build ends), and each verify run's launcher log.
 - `features.json`: each feature a saved tick has seen, as it last saw it, for the history page.
-- `archive/<KEY>/`: per feature, `manifest.jsonl` (one line per stage run, with its usage), the transcript of every build and verifier session with its subagents' transcripts, and a copy of every verify run's folder, which a fix build reads as its report. Claude Code deletes transcripts after `cleanupPeriodDays`; this copy keeps them. Transcripts can hold secrets: the archive stays on this machine.
+- `archive/<KEY>/`: per feature, `manifest.jsonl` (one line per stage run, with its usage), the transcript of every build and verifier session with its subagents' transcripts, and every verify run's folder, which the launcher writes there and a fix build reads as its report. Claude Code deletes transcripts after `cleanupPeriodDays`; this copy keeps them. Transcripts can hold secrets: the archive stays on this machine.
 
 Deleting `~/.sdlc/` (except the config) while nothing runs loses history and the reports for the next fix builds, never a decision: the ledger is Jira and GitHub.
 

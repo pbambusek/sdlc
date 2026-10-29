@@ -29,7 +29,7 @@ The sections and their order are in [template.md](template.md). Two worked specs
 ## Modes
 
 ```
-/sdlc:spec <problem, link or prototype>…
+/sdlc:spec <problem, link or prototype>… [--out <file>]
 /sdlc:spec lint <spec>
 /sdlc:spec revise <spec> --problems <file, folder or text>… [--out <file>]
 ```
@@ -44,7 +44,7 @@ The usual input is a few sentences about a problem, maybe a screenshot or a link
 2. **Research what exists.** Read the code and docs behind the feature: today's behaviour, who may do what, where the feature will be consumed, and any evidence of demand (votes, interviews, feedback). Done when Context can name the existing surfaces it touches and the boundary each claim will be observed at.
 3. **Write the full draft** in [template.md](template.md)'s shape, builder note included, claims ordered as a user or caller meets them and grouped by outcome when they serve more than one. Go beyond the input: the empty, failure and permission cases the human did not mention are where the draft earns its keep. Where a reasonable person could decide differently, pick your best answer for the claim and record the choice as an open question with that recommendation. Then judge the feature's **taste**. When it calls for a prototype and no reviewed one exists, write the behaviour claims in full, write the look-and-wording claims as your best guess, and add `[NEEDS CLARIFICATION] Prototype before approval? — Recommended: yes, because <the signal that holds>; it settles <the claims or choices it decides>`.
 4. **Lint your own draft** with every item of [checklist.md](checklist.md) and fix what fails. Done when each item passes or its gap is an open question.
-5. **Present and steer.** Show the spec, then put the open questions to the human, each with its recommendation, and fold every answer back into the claims. A yes to the prototype question starts the prototype, in this session or as a separate task, and the draft waits for it. When the reviewed prototype comes back, read it as in step 1 and fold its decisions in the same way. Done when no open question remains, or the human approves with the rest explicitly parked.
+5. **Present and steer.** Write the spec to `--out`, or show it, then put the open questions to the human, each with its recommendation, and fold every answer back into the claims. A yes to the prototype question starts the prototype, in this session or as a separate task, and the draft waits for it. When the reviewed prototype comes back, read it as in step 1 and fold its decisions in the same way. Done when no open question remains, or the human approves with the rest explicitly parked.
 6. **Publish** to the tracker only when the human says so; the tracker is shared, so posting is their call.
 
 ### Revise

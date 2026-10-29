@@ -87,11 +87,11 @@ const launcherExit = (log: string) => {
 export const verifierSession = (log: string | null | undefined) =>
   log && existsSync(log) ? (readFileSync(log, 'utf8').match(/verifying headless, session ([0-9a-f-]{36})/)?.[1] ?? null) : null;
 
-/** A reported verify run: its evidence folder, its log and the verifier's transcript. */
+/** A reported verify run: its evidence folder (the launcher writes it here already), its log and the verifier's transcript. */
 export const archiveVerify = (key: string, e: Evidence) => {
   const dest = join(featureDir(key), 'verify', e.dir ? basename(e.dir) : `${e.at.replace(/[:.]/g, '-')}-${e.sha.slice(0, 7)}`);
   mkdirSync(dest, { recursive: true });
-  if (e.dir && existsSync(e.dir)) cpSync(e.dir, dest, { recursive: true });
+  if (e.dir && e.dir !== dest && existsSync(e.dir)) cpSync(e.dir, dest, { recursive: true });
   if (e.log && existsSync(e.log)) cpSync(e.log, join(dest, 'launcher.log'));
   const verifier = verifierSession(e.log);
   const transcript = verifier ? copyTranscript(key, verifier) : null;

@@ -5,8 +5,8 @@
  *   foreman verify --claims <file> [--source <label>] [ref]
  *   foreman verify --export-only [ref]   (setup: export and copy into a workspace VM, print how to open a shell in it, start no session)
  * `foreman verify` runs this file; the tick runs it the same way for each round.
- *   options: --copy <path> (repeatable), --slug <name>, --model <id>, --interactive
- * The page lands in <repo>/.verify/<slug>/<timestamp>-<commit>/ and opens; VERIFY_NO_OPEN=1 keeps it closed.
+ *   options: --copy <path> (repeatable), --slug <name>, --out <folder>, --model <id>, --interactive
+ * The page lands in --out, else in <repo>/.verify/<slug>/<timestamp>-<commit>/, and opens; VERIFY_NO_OPEN=1 keeps it closed.
  *
  * What keeps the verifier honest:
  *   - the target is exported with `git archive` into a new run folder: no history, no diff, no untracked files;
@@ -50,7 +50,7 @@ const options = (() => {
     return fail((e as Error).message);
   }
 })();
-const { exportOnly, claimsFile, spec, copies, slug, model, interactive, ref: refArg } = options;
+const { exportOnly, claimsFile, spec, copies, slug, out: outArg, model, interactive, ref: refArg } = options;
 
 const git = (repo: string, ...a: string[]) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8', maxBuffer: 1 << 30 }).trim();
 const repo = git(process.cwd(), 'rev-parse', '--show-toplevel');
@@ -392,7 +392,7 @@ if (!existsSync(join(verifyDir, 'evidence.json'))) {
   process.exit(1);
 }
 // Rebuilt so the page carries the audit; the builder prints the summary.
-const out = join(repo, '.verify', slug, run);
+const out = outArg ? resolve(outArg) : join(repo, '.verify', slug, run);
 mkdirSync(out, { recursive: true });
 if (existsSync(credentialLog)) copyFileSync(credentialLog, join(verifyDir, 'credential-requests.jsonl'));
 const built = spawnSync('node', [join(scriptsDir, 'build-page.mts'), '.verify'], { cwd: work, stdio: 'inherit' });

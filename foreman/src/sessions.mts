@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { HOME, type Config } from './config.mts';
+import { verifyRunDir } from './evidence.mts';
 import { journalPath } from './journal.mts';
 import type { BuildResult, FeedbackResult, RepoConfig, Running } from './types.mts';
 
@@ -141,7 +142,7 @@ export const launchBuild = (
     issue.url,
     ...(build.branch ? ['--branch', build.branch] : []),
     ...(build.feedback ? ['--feedback', build.feedback] : []),
-    '--result',
+    '--out',
     result,
     '--headless',
   ].join(' ');
@@ -238,7 +239,7 @@ exit $code`;
 
 /**
  * The verify launcher as a detached process. It gets the spec snapshot as the claims, the issue URL as their source,
- * and the commit. Its output goes to a log; its result lands in <repo>/.verify/<KEY>/.
+ * and the commit. Its output goes to a log; its run folder is in the feature's archive, named after the log.
  */
 export const launchVerify = (config: Config, repo: RepoConfig, issue: { key: string; url: string }, spec: string, sha: string, attempt: number) => {
   const dir = join(HOME, 'runs', issue.key);
@@ -257,6 +258,8 @@ export const launchVerify = (config: Config, repo: RepoConfig, issue: { key: str
         issue.url,
         '--slug',
         issue.key,
+        '--out',
+        verifyRunDir(issue.key, log),
         ...repo.verifyCopy.flatMap((c) => ['--copy', c]),
         ...(config.verify.model ? ['--model', config.verify.model] : []),
         sha,

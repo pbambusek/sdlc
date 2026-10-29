@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 
 /** The launcher's command line: what to verify, at which ref, and how. */
 export const USAGE =
-  'usage: foreman verify <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--model <id>] [--interactive]';
+  'usage: foreman verify <spec path> [ref] | --claims <file> [--source <label>] [ref] | --export-only [ref]  [--copy <path>]… [--slug <name>] [--out <folder>] [--model <id>] [--interactive]';
 
 export interface Options {
   exportOnly: boolean;
@@ -16,6 +16,8 @@ export interface Options {
   model: string | undefined;
   // The run folder's name: --slug, else the spec's file name, else `export` or `claims`, with anything but letters, digits and `-` folded to `-`.
   slug: string;
+  // The run folder; <repo>/.verify/<slug>/<timestamp>-<commit> when unset.
+  out: string | undefined;
 }
 
 /** Parses the launcher's arguments. Throws with the usage line when they are incomplete. */
@@ -51,5 +53,6 @@ export const parseArgs = (args: string[]): Options => {
     copies,
     model: flags.get('--model') as string | undefined,
     slug,
+    out: flags.get('--out') as string | undefined,
   };
 };

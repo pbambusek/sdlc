@@ -25,6 +25,11 @@ describe('parseArgs', () => {
     expect(o).toMatchObject({ spec: undefined, claimsFile: 'claims.md', source: 'https://example.com/issue/1', ref: 'abc123', slug: 'claims' });
   });
 
+  it('takes the run folder from --out, and leaves it to the default without one', () => {
+    expect(parseArgs(['--claims', 'claims.md', '--out', '/tmp/run']).out).toBe('/tmp/run');
+    expect(parseArgs(['--claims', 'claims.md']).out).toBeUndefined();
+  });
+
   it('collects every --copy, in order', () => {
     expect(parseArgs(['--export-only', '--copy', '.env', '--copy', 'config/local.json']).copies).toEqual(['.env', 'config/local.json']);
   });
