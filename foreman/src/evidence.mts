@@ -17,13 +17,14 @@ const runTime = (name: string) => {
   return m ? new Date(`${m[1]}:${m[2]}:${m[3]}`).toISOString() : null;
 };
 
+/** Only a run with no evidence is invalid. A flagged audit is a warning: the claims keep the status their evidence gives them. */
 export const classify = (evidence: EvidenceJson | null, audit: { clean: boolean; verdict: string } | null): { result: Result; summary: string } => {
   if (!evidence) return { result: 'invalid', summary: 'The verify run wrote no evidence.' };
-  if (!audit?.clean) return { result: 'invalid', summary: audit?.verdict ?? 'The verify run has no audit.' };
   const claims = evidence.claims.map((c) => ({ id: c.id, status: claimStatus(c.items), reason: c.items.find((i) => i.status !== 'shown')?.reason }));
   if (!claims.length) return { result: 'invalid', summary: 'The verify run checked no claims.' };
   const count = (s: string) => claims.filter((c) => c.status === s).length;
   const lines = [`${count('shown')} shown, ${count('not-shown')} not shown, ${count('blocked')} blocked.`];
+  if (!audit?.clean) lines.push(`Warning: ${audit?.verdict ?? 'the verify run has no audit.'}`);
   for (const c of claims.filter((c) => c.status !== 'shown')) lines.push(`${c.id} ${c.status}: ${c.reason ?? ''}`);
   const result: Result = count('blocked') ? 'blocked' : count('not-shown') ? 'failed' : 'passed';
   return { result, summary: lines.join('\n') };

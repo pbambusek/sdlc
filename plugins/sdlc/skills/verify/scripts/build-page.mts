@@ -3,7 +3,8 @@
  * the summary: the counts of shown, not-shown and blocked claims, and each claim that is not shown with its reason.
  * Usage: `node <skill dir>/scripts/build-page.mts [dir, default .verify]`, from the run folder.
  * Exits 1 and lists every problem when the evidence is malformed. The target and the source come from the runner's
- * `target.json`, and its audit becomes the page's trust line. A screenshot cited by several claims is embedded once.
+ * `target.json`, and its audit becomes the page's trust line, with every tool call it flagged. A flag never changes a claim's
+ * status: each claim's comes from its own items. A screenshot cited by several claims is embedded once.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -21,13 +22,21 @@ if (problems.length > 0) {
 // The runner audits the session once it ends and rebuilds the page with the verdict.
 const auditFile = path.join(dir, 'audit.json');
 const audit = existsSync(auditFile)
-  ? (JSON.parse(readFileSync(auditFile, 'utf8')) as { verdict: string; clean: boolean; changed: string[]; credentials?: string[]; workspace?: string[] })
+  ? (JSON.parse(readFileSync(auditFile, 'utf8')) as {
+      verdict: string;
+      clean: boolean;
+      findings?: { tool: string; input: string; why: string }[];
+      changed: string[];
+      credentials?: string[];
+      workspace?: string[];
+    })
   : null;
 const trust = audit
   ? {
       state: audit.clean && audit.changed.length === 0 ? 'clean' : 'findings',
       lines: [
         audit.verdict,
+        ...(audit.findings ?? []).map((f, i) => `Flagged call ${i + 1}, ${f.why}: ${f.tool} ${f.input}`),
         ...(audit.workspace ?? []),
         ...(audit.credentials ?? []),
         ...(audit.changed.length ? [`The session changed these exported files: ${audit.changed.join(', ')}. Check they don't change what was verified.`] : []),

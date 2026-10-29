@@ -44,6 +44,19 @@ describe('build-page', () => {
     expect(pageData(dir).trust).toEqual({ state: 'clean', lines: ['Audit: clean, none of 3 tool calls reached for how the code was written.'] });
   });
 
+  it('lists every call a flagged audit names, and every claim keeps the status its evidence gives it', () => {
+    const dir = runFolder();
+    const verdict = 'Audit: 1 of 9 tool calls flagged as reaching for how the code was written (Bash: reads git history).';
+    const findings = [{ tool: 'Bash', input: '{"command":"git log -1"}', why: 'reads git history' }];
+    writeFileSync(join(dir, 'audit.json'), JSON.stringify({ verdict, clean: false, findings, changed: [] }));
+    const out = build(dir);
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain('3 shown, 0 not shown, 1 blocked');
+    const page = pageData(dir);
+    expect(page.trust).toEqual({ state: 'findings', lines: [verdict, 'Flagged call 1, reads git history: Bash {"command":"git log -1"}'] });
+    expect(page.claims.map((c: { status: string }) => c.status)).toEqual(['shown', 'shown', 'blocked', 'shown']);
+  });
+
   it('escapes `<` so no evidence text can close the script block', () => {
     const dir = runFolder();
     const evidence = JSON.parse(readFileSync(join(dir, 'evidence.json'), 'utf8'));

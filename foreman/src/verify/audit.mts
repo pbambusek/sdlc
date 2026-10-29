@@ -1,7 +1,8 @@
 /**
  * Audits a finished verification session for a tool call that reached for the story of the change rather than the system's
  * behaviour: git history, a PR or ticket, or a connector. Paths on the host are not its job: the workspace VM doesn't have them.
- * It catches accidental reach, not deliberate obfuscation; the page states the verdict.
+ * It catches accidental reach, not deliberate obfuscation. A flagged call is a warning: the page lists it for a person to
+ * judge, and every claim keeps the status its evidence gives it.
  * It also carries the exported files the session changed. Installs and dev servers rewrite some (a lockfile, a generated
  * config), so they are shown for the reviewer to judge, not counted against the run.
  */
@@ -33,7 +34,12 @@ const strings = (v: unknown): string[] =>
 
 export const audit = ({ transcript, changed }: { transcript: string | null; changed: string[] }): Audit => {
   if (!transcript || !existsSync(transcript)) {
-    return { verdict: 'Audit: not run, the session transcript was not found. Treat this run as invalid.', clean: false, findings: [], changed };
+    return {
+      verdict: 'Audit: not run, the session transcript was not found. The claims keep the status their evidence gives them.',
+      clean: false,
+      findings: [],
+      changed,
+    };
   }
 
   const uses: { name: string; input: unknown }[] = [];
@@ -56,7 +62,7 @@ export const audit = ({ transcript, changed }: { transcript: string | null; chan
   }
 
   const verdict = findings.length
-    ? `Audit: VIOLATED, ${findings.length} of ${uses.length} tool calls reached for how the code was written (${findings[0]!.tool}: ${findings[0]!.why}). Treat this run as invalid.`
+    ? `Audit: ${findings.length} of ${uses.length} tool calls flagged as reaching for how the code was written (${findings[0]!.tool}: ${findings[0]!.why}). The claims keep the status their evidence gives them; check the flagged calls.`
     : `Audit: clean, none of ${uses.length} tool calls reached for how the code was written.`;
   return { verdict, clean: findings.length === 0, findings, changed };
 };

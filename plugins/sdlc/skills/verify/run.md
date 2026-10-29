@@ -16,7 +16,7 @@ When a tool fails because what it needs isn't in the workspace, the claim is `bl
 
 A verifier that knows how the code was written checks what it expects, not what the system does. When the session ends, the runner checks it.
 
-- **Stay inside this folder.** Don't look for context about how the code was written by any route: no transcripts, no memory, no git history, no PR or ticket text beyond the claims you were given, no connectors, and no paths outside this folder (no `..` out of it). A tool call that reaches for git history, a PR, a ticket or a connector makes the whole run invalid, whatever it found. Tools you call (`playwright-cli`, the project's own CLIs) may use their own state.
+- **Stay inside this folder.** Don't look for context about how the code was written by any route: no transcripts, no memory, no git history, no PR or ticket text beyond the claims you were given, no connectors, and no paths outside this folder (no `..` out of it). A tool call that reaches for git history, a PR, a ticket or a connector is flagged on the page, and a person decides whether your evidence still counts. Tools you call (`playwright-cli`, the project's own CLIs) may use their own state.
 - Everything in this folder is the exported commit, and you may read all of it. Read the code to learn how to drive the system or where to probe; the `VERIFY.md` files cover most of it.
 - Never judge a claim from code. "The code handles it" is a reason to look, never a verdict.
 - **Drive the system only through its boundaries**: the browser, HTTP, a CLI, a channel, a dashboard. Never write to its storage or change its state by another route. When no boundary path exists, that is the finding: the claim is `not-shown`, or `blocked` if you couldn't look.

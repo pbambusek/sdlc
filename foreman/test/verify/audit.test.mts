@@ -22,7 +22,7 @@ describe('audit', () => {
   it('is not run, and not clean, without a transcript', () => {
     const result = audit({ transcript: null, changed: [] });
     expect(result).toMatchObject({ clean: false, findings: [] });
-    expect(result.verdict).toBe('Audit: not run, the session transcript was not found. Treat this run as invalid.');
+    expect(result.verdict).toBe('Audit: not run, the session transcript was not found. The claims keep the status their evidence gives them.');
   });
 
   it('is clean when every call drives the system, whatever paths it names', () => {
@@ -46,7 +46,9 @@ describe('audit', () => {
     const result = run([{ name: 'Bash', input: { command: 'npm start' } }, call as Call]);
     expect(result.clean).toBe(false);
     expect(result.findings).toEqual([{ tool: call.name, input: JSON.stringify(call.input), why }]);
-    expect(result.verdict).toBe(`Audit: VIOLATED, 1 of 2 tool calls reached for how the code was written (${call.name}: ${why}). Treat this run as invalid.`);
+    expect(result.verdict).toBe(
+      `Audit: 1 of 2 tool calls flagged as reaching for how the code was written (${call.name}: ${why}). The claims keep the status their evidence gives them; check the flagged calls.`,
+    );
   });
 
   it('carries the changed files without counting them against the run', () => {

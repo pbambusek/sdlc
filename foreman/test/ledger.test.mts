@@ -86,7 +86,9 @@ test('a verify run is passed only when the audit is clean and every claim is sho
   expect(classify(ev('shown', 'shown'), clean).result).toBe('passed');
   expect(classify(ev('shown', 'not-shown'), clean).result).toBe('failed');
   expect(classify(ev('not-shown', 'blocked'), clean).result).toBe('blocked');
-  expect(classify(ev('shown'), { clean: false, verdict: 'reached git history' }).result).toBe('invalid');
+  const flagged = classify(ev('shown'), { clean: false, verdict: 'reached git history' });
+  expect(flagged.result).toBe('passed');
+  expect(flagged.summary).toContain('Warning: reached git history');
   expect(classify(null, clean).result).toBe('invalid');
 });
 

@@ -419,4 +419,4 @@ rmSync(stateDir, { recursive: true, force: true });
 
 const opener = process.platform === 'darwin' ? 'open' : process.platform === 'linux' ? 'xdg-open' : null;
 if (opener && !process.env.VERIFY_NO_OPEN) spawnSync(opener, [join(out, 'evidence.html')], { stdio: 'ignore' });
-if (!result.clean) fail('✖ the audit failed; treat this page as invalid');
+if (!result.clean) console.log('! the audit has warnings; the page lists them, and the claims keep their status');

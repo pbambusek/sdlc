@@ -339,9 +339,9 @@
                 c.status === 'shown' ? '' : ICON[c.status]))));
         })),
         el('div', { class: 'trust' },
-          ev.trust.state === 'clean' ? el('span', { class: 'pill shown' }, '✓ Audit clean') : ev.trust.state === 'pending' ? el('span', { class: 'pill blocked' }, '… Audit pending') : el('span', { class: 'pill not-shown' }, '✕ Audit findings'),
+          ev.trust.state === 'clean' ? el('span', { class: 'pill shown' }, '✓ Audit clean') : ev.trust.state === 'pending' ? el('span', { class: 'pill blocked' }, '… Audit pending') : el('span', { class: 'pill blocked' }, '! Audit warning'),
           el('span', {}, ev.trust.state === 'clean' ? 'The verifier never looked at how the code was written.' : ev.trust.lines[0]),
-          el('details', {}, el('summary', {}, 'Audit and credential details'), el('ul', {}, ev.trust.lines.map((l) => el('li', {}, l)))))),
+          el('details', { open: ev.trust.state === 'findings' }, el('summary', {}, 'Audit and credential details'), el('ul', {}, ev.trust.lines.map((l) => el('li', {}, l)))))),
     ];
   };
 
