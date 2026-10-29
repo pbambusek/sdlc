@@ -58,7 +58,7 @@ export const archiveSessions = (key: string, launches: Launch[], sessions: Agent
     const s = sessions.find((x) => x.sessionId === l.session);
     if (s && s.state !== 'done') continue;
     const transcript = copyTranscript(key, l.session);
-    const outcome = (l.stage === 'feedback' ? readFeedbackResult(l.result) : readBuildResult(l.result))?.outcome ?? 'none';
+    const outcome = l.stage === 'feedback' ? (readFeedbackResult(l.result) ? 'read' : 'none') : (readBuildResult(l.result)?.outcome ?? 'none');
     if (transcript)
       manifest(key, {
         stage: l.stage,
@@ -153,12 +153,8 @@ export const loadRuns = (only?: string): Run[] => {
   return runs.sort((a, b) => a.at.localeCompare(b.at));
 };
 
-/** A recorded feedback output: kept under its own name, which the ledger names and the next build reads. */
-export const archiveFeedback = (key: string, src: string) => {
-  const dir = join(featureDir(key), 'feedback');
-  mkdirSync(dir, { recursive: true });
-  cpSync(src, join(dir, basename(src)));
-  return basename(src);
-};
+/** A round's folder: the feedback file the feedback run writes there, and the person's decided copy beside it. */
+export const roundDir = (key: string, sha: string) => join(featureDir(key), 'rounds', sha);
 
-export const feedbackPath = (key: string, file: string) => join(featureDir(key), 'feedback', file);
+/** A build's questions, as items for the question gate, and the person's decided copy beside them. */
+export const questionsDir = (key: string, build: number) => join(featureDir(key), 'questions', `build-${build}`);

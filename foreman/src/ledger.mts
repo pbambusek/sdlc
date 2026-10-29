@@ -1,8 +1,22 @@
 // What the tick writes into Jira comments, and what it reads back from them and from the changelog.
-import type { Approval, BuildOutcome, BuildResult, FeedbackOutcome, FeedbackResult, Launch, Notice, Report, Result, ReviewRequest, Stage } from './types.mts';
+import { isGood } from './round.mts';
+import type {
+  Approval,
+  BuildOutcome,
+  BuildResult,
+  Decided,
+  FeedbackOutcome,
+  FeedbackResult,
+  Launch,
+  Notice,
+  Report,
+  Result,
+  ReviewRequest,
+  Stage,
+} from './types.mts';
 
 export const MARK = '[sdlc]';
-export const LABELS = { optIn: 'sdlc', approved: 'sdlc-approved', parked: 'sdlc-parked' } as const;
+export const LABELS = { optIn: 'sdlc', approved: 'sdlc-approved' } as const;
 
 const fields = (line: string) => Object.fromEntries([...line.matchAll(/(\w+)=(\S+)/g)].map((m) => [m[1]!, m[2]!]));
 
@@ -40,25 +54,36 @@ export const reportComment = (sha: string, result: Result, summary: string, file
   (files ? ` evidence=${files.evidence} page=${files.page}` : '') +
   (run ? ` run=${run}` : '') +
   `\n${summary}`;
-/** How a feedback run ended: the fields the tick acts on, then what it found, for people. The full output is attached. */
-export const feedbackComment = (l: Launch, r: FeedbackResult | null, file?: string) => {
+/** How a feedback run ended: the fields the tick acts on, then the items that need a decision, for people. The full output is attached. */
+export const feedbackComment = (l: Launch, r: FeedbackResult | null, file?: string, attachment?: string) => {
   const head =
     `${MARK} feedback-result attempt=${l.attempt} sha=${l.sha}` +
     (l.session ? ` session=${l.session}` : '') +
-    ` outcome=${r?.outcome ?? 'none'}` +
-    (file ? ` file=${file}` : '');
+    ` outcome=${r ? 'read' : 'none'}` +
+    (file ? ` file=${file}` : '') +
+    (attachment ? ` attachment=${attachment}` : '');
   if (!r) return `${head}\nThe feedback run ended without writing an output.`;
-  const blocking = r.findings.filter((x) => x.severity === 'blocking');
-  const lines = [
-    `${blocking.length} blocking and ${r.findings.length - blocking.length} advisory findings, ${r.blocked.length} signals nobody could read.`,
-    ...blocking.map((x) => `- ${x.id} (${x.source}${x.about?.length ? `, ${x.about.join(', ')}` : ''}): ${x.observed}`),
-    ...r.blocked.map((b) => `- blocked (${b.source}): ${b.reason}`),
-  ];
-  return `${head}\n${lines.join('\n')}${file ? `\nFull output attached: ${file}` : ''}`;
+  const open = r.items.filter((x) => !isGood(x));
+  const lines = [`${r.items.length} items, ${open.length} to decide.`, ...open.map((x) => `- ${x.item}: ${x.status}`)];
+  return `${head}\n${lines.join('\n')}\nThe round's gate is open on the dashboard.`;
 };
 
+/** A person's decisions at a gate: the fields the tick acts on, then each decided item, for people. The decided document is attached. */
+export const decidedComment = (d: Omit<Decided, 'at'>, lines: string[]) =>
+  `${MARK} decided gate=${d.gate} sha=${d.sha}` +
+  (d.build ? ` build=${d.build}` : '') +
+  ` next=${d.next} commit=${d.commit ? 'yes' : 'no'}` +
+  (d.replies ? ` replies=${d.replies}` : '') +
+  (d.file ? ` file=${d.file}` : '') +
+  (d.attachment ? ` attachment=${d.attachment}` : '') +
+  `\n${lines.join('\n')}`;
+
+export const retryComment = (stage: Stage, who: string) => `${MARK} retry stage=${stage}\n${who} asked for the stalled ${stage} to run again.`;
+export const repliedComment = (sha: string, items: string[]) =>
+  `${MARK} replied sha=${sha}\nAnswered ${items.length} review thread${items.length > 1 ? 's' : ''} with the decision's words:\n${items.map((i) => `- ${i}`).join('\n')}`;
+export const readyComment = (sha: string, pr: string) => `${MARK} ready sha=${sha}\nReady to merge: ${pr} can merge with only an approval missing.`;
+
 export const reviewComment = (sha: string, how: string) => `${MARK} review-requested sha=${sha}\n${how}`;
-export const parkComment = (reason: string) => `${MARK} parked\n${reason}\nRemove the ${LABELS.parked} label to continue.`;
 export const noticeComment = (code: string, text: string) => `${MARK} notice code=${code}\n${text}`;
 
 // ---- reading
@@ -76,6 +101,10 @@ export const readComments = (comments: Comment[]) => {
   const feedbacks: FeedbackOutcome[] = [];
   const reviewRequests: ReviewRequest[] = [];
   const parks: { at: string; reason: string }[] = [];
+  const decisions: Decided[] = [];
+  const retries: { at: string; stage: Stage }[] = [];
+  const readies: string[] = [];
+  const replied: string[] = [];
   for (const c of comments) {
     const first = c.text.split('\n', 1)[0]!.trim();
     if (!first.startsWith(MARK)) continue;
@@ -110,9 +139,29 @@ export const readComments = (comments: Comment[]) => {
         attempt: Number(f.attempt ?? 1),
         sha: f.sha,
         session: f.session,
-        outcome: f.outcome as FeedbackOutcome['outcome'],
+        // An outcome written before items: any output was read.
+        outcome: f.outcome === 'none' ? 'none' : 'read',
         file: f.file,
+        attachment: f.attachment,
       });
+    } else if (first.startsWith(`${MARK} decided`) && f.sha && f.next) {
+      decisions.push({
+        at: c.at,
+        gate: f.gate === 'questions' ? 'questions' : 'round',
+        sha: f.sha,
+        build: f.build ? Number(f.build) : undefined,
+        next: f.next as Decided['next'],
+        commit: f.commit === 'yes',
+        replies: Number(f.replies ?? 0),
+        file: f.file,
+        attachment: f.attachment,
+      });
+    } else if (first.startsWith(`${MARK} retry`) && (f.stage === 'build' || f.stage === 'verify' || f.stage === 'feedback')) {
+      retries.push({ at: c.at, stage: f.stage });
+    } else if (first.startsWith(`${MARK} replied`) && f.sha) {
+      replied.push(f.sha);
+    } else if (first.startsWith(`${MARK} ready`) && f.sha) {
+      readies.push(f.sha);
     } else if (first.startsWith(`${MARK} review-requested`) && f.sha) {
       reviewRequests.push({ at: c.at, sha: f.sha });
     } else if (first.startsWith(`${MARK} notice`) && f.code) {
@@ -130,6 +179,10 @@ export const readComments = (comments: Comment[]) => {
     feedbacks: byTime(feedbacks),
     reviewRequests: byTime(reviewRequests),
     parks: byTime(parks),
+    decisions: byTime(decisions),
+    retries: byTime(retries),
+    readies,
+    replied,
   };
 };
 
@@ -143,15 +196,6 @@ export interface ChangelogEntry {
 const labelSet = (s: string | null) => new Set((s ?? '').split(/\s+/).filter(Boolean));
 const added = (e: ChangelogEntry, label: string) =>
   e.items.some((i) => i.field === 'labels' && labelSet(i.toString).has(label) && !labelSet(i.fromString).has(label));
-const removed = (e: ChangelogEntry, label: string) =>
-  e.items.some((i) => i.field === 'labels' && labelSet(i.fromString).has(label) && !labelSet(i.toString).has(label));
-
-/** When a person removed the parked label, oldest first: each starts a new epoch. */
-export const unparks = (changelog: ChangelogEntry[]) =>
-  changelog
-    .filter((e) => removed(e, LABELS.parked))
-    .map((e) => e.at)
-    .sort();
 
 /**
  * The spec is the live description, valid only when an approver added the approved label
@@ -180,6 +224,5 @@ export const readApproval = (
     const reason = `${edit.who} edited the description after it was approved. Review it, then remove ${LABELS.approved} and add it again.`;
     return { approval: { ok: false, code: 'edited-after-approval', reason, since: edit.at }, epoch: null };
   }
-  const unpark = log.filter((e) => e.at > approval.at && removed(e, LABELS.parked)).pop();
-  return { approval: { ok: true, at: approval.at, by: approval.who }, epoch: unpark?.at ?? approval.at };
+  return { approval: { ok: true, at: approval.at, by: approval.who }, epoch: approval.at };
 };

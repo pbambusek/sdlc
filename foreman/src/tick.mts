@@ -1,25 +1,25 @@
 // One tick: observe every feature in the ledger, decide with the table, act. Running it twice in a row is harmless.
-import { existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
-import { archiveFeedback, archiveSessions, archiveVerify, feedbackPath, findTranscript, loadRuns, verifierSession } from './archive.mts';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { archiveSessions, archiveVerify, findTranscript, loadRuns, questionsDir, verifierSession } from './archive.mts';
 import { HOME, type Config } from './config.mts';
 import { decide, settle } from './decide.mts';
 import { findEvidence } from './evidence.mts';
 import { timeline, withRuns, type Step } from './history.mts';
-import { findPr, labelPr, markReady, postStatus, readChecks, requestReview } from './github.mts';
+import { closePr, findPr, labelPr, markReady, postReady, postReply, postStatus, readChecks, readMerge, requestReview } from './github.mts';
+import { repliesOf, type ItemDecision } from './round.mts';
 import type { Issue, Jira } from './jira.mts';
 import {
   buildComment,
   feedbackComment,
-  LABELS,
   launchComment,
   noticeComment,
-  parkComment,
   readApproval,
   readComments,
+  readyComment,
+  repliedComment,
   reportComment,
   reviewComment,
-  unparks,
 } from './ledger.mts';
 import {
   launchBuild,
@@ -36,7 +36,7 @@ import {
   type AgentSession,
 } from './sessions.mts';
 import { runSeconds, totals } from './stats.mts';
-import type { Action, Decision, Feature, Stage } from './types.mts';
+import type { Action, Decision, Feature, FeedbackItem, Mergeability, Stage } from './types.mts';
 import { cost, sessionUsage } from './usage.mts';
 
 export interface Observed {
@@ -83,6 +83,11 @@ export const observe = async (config: Config, jira: Jira, issue: Issue, sessions
       ? { launch: lastFeedback, result: readFeedbackResult(lastFeedback.result) }
       : null;
 
+  // Whether the PR can merge, once a round on its head is decided: what a ready issue waits for.
+  const decisions = since(ledger.decisions);
+  const decidedHead = pr?.state === 'open' && decisions.some((d) => d.gate === 'round' && d.sha === pr.head && d.next !== 'respec');
+  const merge = repo && pr && decidedHead ? readMerge(repo, pr.number) : null;
+
   // The head's round, once it has a valid verify result: what CI and the reviewer still run on it.
   const firstVerify = pr && launches.find((l) => l.stage === 'verify' && l.sha === pr.head);
   const validReport = pr && since(ledger.reports).some((r) => r.sha === pr.head && r.result !== 'invalid');
@@ -95,7 +100,6 @@ export const observe = async (config: Config, jira: Jira, issue: Issue, sessions
     key: issue.key,
     summary: issue.summary,
     url: issue.url,
-    parked: issue.labels.includes(LABELS.parked),
     approval,
     epoch,
     repo,
@@ -113,8 +117,13 @@ export const observe = async (config: Config, jira: Jira, issue: Issue, sessions
     reviewRequests: since(ledger.reviewRequests),
     finishedFeedback,
     round,
+    decisions,
+    retries: since(ledger.retries),
+    readies: ledger.readies,
+    replied: ledger.replied,
+    merge,
   };
-  return { feature, steps: timeline(ledger, unparks(changelog), running) };
+  return { feature, steps: timeline(ledger, running) };
 };
 
 const describe = (a: Action) =>
@@ -129,12 +138,16 @@ const describe = (a: Action) =>
           : a.kind === 'launch-feedback'
             ? `launch feedback #${a.attempt} on ${a.sha.slice(0, 7)}`
             : a.kind === 'record-feedback'
-              ? `record feedback #${a.launch.attempt}: ${a.result?.outcome ?? 'no output'}`
+              ? `record feedback #${a.launch.attempt}: ${a.result ? `${a.result.items.length} items` : 'no output'}`
               : a.kind === 'report'
                 ? `report ${a.evidence.result} for ${a.evidence.sha.slice(0, 7)}`
-                : a.kind === 'park'
-                  ? `park: ${a.reason.split('\n')[0]}`
-                  : `notice ${a.code}`;
+                : a.kind === 'ready'
+                  ? `mark ${a.sha.slice(0, 7)} ready to merge`
+                  : a.kind === 'close-pr'
+                    ? 'close the abandoned PR'
+                    : a.kind === 'post-replies'
+                      ? `answer the decided review threads on ${a.sha.slice(0, 7)}`
+                      : `notice ${a.code}`;
 
 /** What a feature has used: its archived runs, plus what a running build or verifier has used so far. */
 export interface Spent {
@@ -158,7 +171,18 @@ export interface Totals {
 export interface TickResult {
   at: string;
   dryRun: boolean;
-  decisions: (Decision & { summary: string; url: string; pr: string | null; done: string[]; spent?: Spent; steps?: Step[] })[];
+  decisions: (Decision & {
+    summary: string;
+    url: string;
+    pr: string | null;
+    /** What a gate page shows without asking anyone: the PR's head and whether it can merge, and the next build's number. */
+    head?: string | null;
+    merge?: Mergeability | null;
+    nextBuild?: number;
+    done: string[];
+    spent?: Spent;
+    steps?: Step[];
+  })[];
   errors: string[];
   totals?: Totals;
 }
@@ -238,7 +262,16 @@ export const tick = async (config: Config, jira: Jira, opts: { dryRun: boolean; 
   for (const { issue, feature, steps } of features) {
     const d = decide(feature, config.limits);
     const done: string[] = [];
-    const row: TickResult['decisions'][number] = { ...d, summary: issue.summary, url: issue.url, pr: feature.pr?.url ?? null, done };
+    const row: TickResult['decisions'][number] = {
+      ...d,
+      summary: issue.summary,
+      url: issue.url,
+      pr: feature.pr?.url ?? null,
+      head: feature.pr?.state === 'open' ? feature.pr.head : null,
+      merge: feature.merge,
+      nextBuild: feature.allLaunches.filter((l) => l.stage === 'build').length + 1,
+      done,
+    };
     result.decisions.push(row);
     if (!opts.dryRun && feature.repo) archiveSessions(feature.key, feature.allLaunches, sessions);
 
@@ -277,7 +310,7 @@ const act = async (config: Config, jira: Jira, issue: Issue, f: Feature, a: Acti
   switch (a.kind) {
     case 'launch-build': {
       const spec = specSnapshot(issue, approvedAt(f));
-      const feedback = a.feedback ? feedbackPath(f.key, a.feedback) : null;
+      const feedback = a.feedback ? await restore(jira, f, a.feedback) : null;
       const { session, work, result, run } = launchBuild(config, repo, issue, { attempt: a.attempt, base: a.base, branch: a.branch, spec, feedback });
       const note = `Session "${sessionName(f.key, 'build', a.attempt)}": claude attach ${session.slice(0, 8)}`;
       await jira.comment(f.key, launchComment({ stage: 'build', attempt: a.attempt, base: a.base, session, work, result }, note));
@@ -285,6 +318,19 @@ const act = async (config: Config, jira: Jira, issue: Issue, f: Feature, a: Acti
       return;
     }
     case 'record-build': {
+      if (a.result?.outcome === 'asked') {
+        const dir = questionsDir(f.key, a.launch.attempt);
+        mkdirSync(dir, { recursive: true });
+        const items = (a.result.questions ?? []).map((q, i) => ({
+          item: `question:${q.id ?? `Q${i + 1}`}`,
+          status: 'open',
+          observed: q.question,
+          about: q.about ?? [],
+          recommended: q.recommended ?? '',
+        }));
+        writeFileSync(join(dir, 'questions.json'), JSON.stringify({ commit: a.result.commit ?? null, build: a.launch.attempt, items }, null, 2) + '\n');
+        await jira.attach(f.key, [{ name: `sdlc-questions-build-${a.launch.attempt}.json`, path: join(dir, 'questions.json') }]);
+      }
       await jira.comment(f.key, buildComment(a.launch, a.result));
       if (a.launch.work) removeWorktree(repo, a.launch.work);
       if (a.result?.outcome === 'built' && a.result.review) {
@@ -320,10 +366,10 @@ const act = async (config: Config, jira: Jira, issue: Issue, f: Feature, a: Acti
       return;
     }
     case 'record-feedback': {
-      // The output goes into the ledger unchanged: attached for people, archived for the next build.
-      const file = a.result && a.launch.result ? archiveFeedback(f.key, a.launch.result) : undefined;
-      if (file) await jira.attach(f.key, [{ name: `sdlc-${file}`, path: feedbackPath(f.key, file) }]);
-      await jira.comment(f.key, feedbackComment(a.launch, a.result, file));
+      // The output goes into the ledger unchanged: it is written in the round's folder, and attached for people and for a lost archive.
+      const file = a.result && a.launch.result ? a.launch.result : undefined;
+      const [attachment] = file ? await jira.attach(f.key, [{ name: `sdlc-feedback-${a.launch.sha!.slice(0, 7)}-${a.launch.attempt}.json`, path: file }]) : [];
+      await jira.comment(f.key, feedbackComment(a.launch, a.result, file, attachment));
       if (a.launch.work) removeWorktree(repo, a.launch.work);
       return;
     }
@@ -349,12 +395,40 @@ const act = async (config: Config, jira: Jira, issue: Issue, f: Feature, a: Acti
       archiveVerify(f.key, e);
       return;
     }
-    case 'park':
-      await jira.comment(f.key, parkComment(a.reason));
-      await jira.addLabel(f.key, LABELS.parked);
+    case 'ready':
+      postReady(repo, a.sha);
+      await jira.comment(f.key, readyComment(a.sha, f.pr!.url));
       return;
+    case 'close-pr':
+      closePr(repo, f.pr!.url);
+      return;
+    case 'post-replies': {
+      // The replies first: the record comment marks them posted, so a reply that failed to post is retried by the next tick.
+      const file = await restore(jira, f, a.file);
+      const doc = JSON.parse(readFileSync(file, 'utf8')) as { items: (FeedbackItem & { decision?: ItemDecision })[] };
+      const replies = repliesOf(doc.items.flatMap((it) => (it.decision ? [{ item: it.item, ...it.decision }] : [])));
+      for (const r of replies) postReply(repo, f.pr!.number, r.item, r.body);
+      await jira.comment(
+        f.key,
+        repliedComment(
+          a.sha,
+          replies.map((r) => r.item),
+        ),
+      );
+      return;
+    }
     case 'notice':
       await jira.comment(f.key, noticeComment(a.code, a.text));
       return;
   }
+};
+
+/** A decided document the build reads: the archive's copy, or the one attached to the issue when the archive lost it. */
+const restore = async (jira: Jira, f: Feature, file: string) => {
+  if (existsSync(file)) return file;
+  const d = f.decisions.find((x) => x.file === file);
+  if (!d?.attachment) throw new Error(`${file} is gone and the issue has no attachment of it`);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, await jira.download(d.attachment));
+  return file;
 };

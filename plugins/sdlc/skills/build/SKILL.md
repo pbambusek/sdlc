@@ -5,7 +5,7 @@ description: Build from a spec — implement its claims as pushed commits on a p
 
 # Build a spec
 
-The **spec** is the contract: its claims are the acceptance criteria, and its intent decides any case no claim covers. How to meet them is your call; what a claim means is not: when that is unclear, ask. A build ends in commits pushed to a branch, a pull request, and a **result** that tells whoever started the build what happened. Checking the build is someone else's job, done against the spec and the commit alone: never offer your own work as proof. You never comment on the pull request: a reply to a reviewer goes in the result, and whoever started the build posts it.
+The **spec** is the contract: its claims are the acceptance criteria, and its intent decides any case no claim covers. How to meet them is your call; what a claim means is not: when that is unclear, ask. A build ends in commits pushed to a branch, a pull request, and a **result** that tells whoever started the build what happened. Checking the build is someone else's job, done against the spec and the commit alone: never offer your own work as proof. On the pull request you only reply in the review threads you fixed (step 7): you never resolve a thread, and post nothing else.
 
 ## Inputs
 
@@ -41,7 +41,6 @@ Each question names the claims or items it is about and gives your recommended a
 
    In a round document, act on an item only by its decision:
    - `fix`: fix it, sorted as below;
-   - `reply`, on a `thread:` item: leave the code as it is, and word a reply to that thread from the hint. It goes in the result's `replies`;
    - `answer`, on a `question:` item an earlier build asked: the hint is the answer. It clarifies what the spec leaves open and never changes a claim. Act on it, and never ask that question again;
    - `merge`, on `base`: step 3 takes the base branch in;
    - any other decision, or none: the change does nothing about it. A shown claim stays working.
@@ -59,8 +58,9 @@ Each question names the claims or items it is about and gives your recommended a
 4. **Build.** Meet every claim at its boundary, and fix what step 2 sorted. A requirement the change adds to running the system (a variable, a seam, a service) goes in the repo's docs on running it, in the same commit. Change the behaviour, never the evidence: no paths that only a check takes, no special cases for the feedback's inputs, no edits to the feedback or the spec.
 5. **Meet the project's bar.** Run what its CI would run and what its rules ask for: formatters, linters, type checks, tests. Done when all of it passes, on the merged result.
 6. **Publish.** Commit, and before pushing fetch the default branch again: when it has moved, repeat steps 3 and 5. Then push to the branch (from a detached HEAD: push `HEAD` to it), and open a pull request, not a draft, the way the repo does it (its template, its title rule, its tooling), linking `--source`. When the branch already has a pull request, every push updates its body to describe the change as it now stands on the branch, in the same template: the whole change, not this round's delta. With no commit, push nothing and open nothing.
-7. **Report the result**: write it to `--out` when given, and end with it.
+7. **Reply in the threads you fixed**, once the push is done: in each `thread:` item decided `fix`, one reply, "Addressed in `<pushed sha>`:" and one line on how. Reply with the forge's own tools (`gh api` on GitHub) in the thread the item's URL names; never resolve it. Done when every thread you fixed has its reply.
+8. **Report the result**: write it to `--out` when given, and end with it.
 
 ## Result
 
-[assets/example/result.json](assets/example/result.json) shows the shape. `outcome` is `built` when the commit is ready to check, with `questions` empty; `asked` otherwise, with `commit` the head you pushed before asking. Each question has an `id` (`Q1`, `Q2`… in this result), the claims or items it is `about`, and your `recommended` answer. `replies` holds one reply per item decided `reply`, named by that item, for whoever started the build to post in its thread. Exactly this shape: it carries no summary of what you did, because whoever checks the build judges the system, not your account of it.
+[assets/example/result.json](assets/example/result.json) shows the shape. `outcome` is `built` when the commit is ready to check, with `questions` empty; `asked` otherwise, with `commit` the head you pushed before asking. Each question has an `id` (`Q1`, `Q2`… in this result), the claims or items it is `about`, and your `recommended` answer. Exactly this shape: it carries no summary of what you did, because whoever checks the build judges the system, not your account of it.

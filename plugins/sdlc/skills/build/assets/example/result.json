@@ -10,11 +10,5 @@
       "question": "C4 says a draft expires after 7 days; C6 says drafts are kept until sent. Which wins for an unsent draft?",
       "recommended": "C4: expire it after 7 days, and C6 covers only drafts inside that window."
     }
-  ],
-  "replies": [
-    {
-      "item": "thread:https://github.com/example/shop/pull/42#discussion_r1001",
-      "body": "Leaving the name as it is: `count` matches the field the API already returns."
-    }
   ]
 }

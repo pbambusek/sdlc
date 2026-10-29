@@ -1,6 +1,7 @@
-// GitHub through the gh CLI: the build's PR, its label, the sdlc/verify commit status, a head's checks and its review request.
-import { execFileSync } from 'node:child_process';
-import type { PullRequest, RepoConfig, Result } from './types.mts';
+// GitHub through the gh CLI: the build's PR and whether it can merge, its label, the sdlc/verify and sdlc/ready commit
+// statuses, a head's checks, its review request, closing an abandoned PR, and answering a review thread.
+import { execFileSync, spawnSync } from 'node:child_process';
+import type { Mergeability, PullRequest, RepoConfig, Result } from './types.mts';
 
 const gh = (...args: string[]) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 1 << 26, stdio: ['ignore', 'pipe', 'pipe'] });
 /** A `--json` list: some gh commands print nothing, not `[]`, when nothing matches (`gh label list` since 2.10x). */
@@ -11,6 +12,7 @@ const ghList = <T,>(...args: string[]): T[] => {
 
 export const PR_LABEL = 'sdlc';
 export const STATUS_CONTEXT = 'sdlc/verify';
+export const READY_CONTEXT = 'sdlc/ready';
 
 /** The build's PR: the one on the branch its build result named. An open one wins over closed ones. */
 export const findPr = (repo: RepoConfig, branch: string): PullRequest | null => {
@@ -100,4 +102,66 @@ export const requestReview = (repo: RepoConfig, url: string, sha: string) => {
   const asked = pr.reviewRequests.some((q) => (q.login ?? q.slug ?? '').toLowerCase() === who);
   const reviewed = pr.reviews.some((v) => v.author.login.toLowerCase() === who && v.commit?.oid === sha);
   if (!asked && !reviewed) gh('pr', 'edit', url, '-R', repo.github, '--add-reviewer', r.reviewer);
+};
+
+/** `sdlc/ready` on a head foreman found ready to merge; a new head has none until its own round says so. */
+export const postReady = (repo: RepoConfig, sha: string) =>
+  gh(
+    'api',
+    '-X',
+    'POST',
+    `repos/${repo.github}/statuses/${sha}`,
+    '-f',
+    'state=success',
+    '-f',
+    `context=${READY_CONTEXT}`,
+    '-f',
+    'description=Ready to merge: only an approval is missing',
+  );
+
+/** The required checks on the PR's head; `gh pr checks` exits non-zero while one fails or is pending, and prints them all the same. */
+const requiredChecks = (repo: RepoConfig, pr: number): { name: string; bucket: string }[] => {
+  const r = spawnSync('gh', ['pr', 'checks', String(pr), '-R', repo.github, '--required', '--json', 'name,bucket'], { encoding: 'utf8' });
+  if (r.error) throw r.error;
+  const out = r.stdout.trim();
+  if (out.startsWith('[')) return JSON.parse(out);
+  if (/no required checks/i.test(r.stderr) || r.status === 0) return [];
+  throw new Error(`gh pr checks ${pr}: ${r.stderr.trim()}`);
+};
+
+/**
+ * Whether GitHub would merge the PR with nothing missing but a person's approval: no conflict, up to date with its base when
+ * its protection asks for it, and every required check passed on the head. foreman's own `sdlc/` statuses never count, so a
+ * protection that requires `sdlc/ready` doesn't keep it from being posted. `BLOCKED` passes only when what blocks it is the
+ * missing approval.
+ */
+export const readMerge = (repo: RepoConfig, pr: number): Mergeability => {
+  const v = JSON.parse(gh('pr', 'view', String(pr), '-R', repo.github, '--json', 'mergeable,mergeStateStatus,reviewDecision,baseRefName,isDraft')) as {
+    mergeable: string;
+    mergeStateStatus: string;
+    reviewDecision: string;
+    baseRefName: string;
+    isDraft: boolean;
+  };
+  const base = v.baseRefName;
+  const no = (why: string): Mergeability => ({ ready: false, why, base });
+  if (v.isDraft) return no('is a draft');
+  if (v.mergeable === 'CONFLICTING' || v.mergeStateStatus === 'DIRTY') return no(`conflicts with ${base}`);
+  if (v.mergeStateStatus === 'BEHIND') return no(`is behind ${base}`);
+  if (v.mergeable === 'UNKNOWN' || v.mergeStateStatus === 'UNKNOWN') return no('is still being checked for conflicts by GitHub');
+  const failing = requiredChecks(repo, pr).filter((c) => !c.name.startsWith('sdlc/') && c.bucket !== 'pass' && c.bucket !== 'skipping');
+  if (failing.length) return no(`has required checks that have not passed: ${failing.map((c) => c.name).join(', ')}`);
+  if (v.reviewDecision === 'CHANGES_REQUESTED') return no('has a review requesting changes');
+  if (v.mergeStateStatus === 'BLOCKED' && v.reviewDecision !== 'REVIEW_REQUIRED') return no(`is blocked by a rule on ${base} other than an approval`);
+  return { ready: true, why: 'can merge once approved', base };
+};
+
+/** An abandoned issue's PR is closed, with nothing posted on it. */
+export const closePr = (repo: RepoConfig, url: string) => gh('pr', 'close', url, '-R', repo.github);
+
+/** Answers a review thread with a person's decided words: in the thread its item names (`thread:<url of its first comment>`). */
+export const postReply = (repo: RepoConfig, pr: number, item: string, body: string) => {
+  const id = item.match(/#discussion_r(\d+)$/)?.[1];
+  if (!id) throw new Error(`${item} names no review comment to reply to`);
+  gh('api', '-X', 'POST', `repos/${repo.github}/pulls/${pr}/comments/${id}/replies`, '-f', `body=${body}`);
 };

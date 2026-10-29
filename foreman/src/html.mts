@@ -29,3 +29,79 @@ for (const t of document.querySelectorAll('time[data-at]')) t.textContent = new 
 const times = () => { for (const t of document.querySelectorAll('time[data-ago]')) t.textContent = ago(t.dateTime); };
 times(); setInterval(times, 15000);
 `;
+
+const inline = (s: string) =>
+  esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, t: string, u: string) => `<a href="${u}">${t}</a>`);
+
+/**
+ * A reviewer's comment as GitHub shows it, for the kinds of Markdown review bots and people write: headings, bold and
+ * italics, inline and fenced code, lists and task boxes, links, quotes and `<details>`. HTML comments are dropped; every
+ * other piece of HTML is shown as text.
+ */
+export const gfm = (text: string) => {
+  const lines = text
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\r/g, '')
+    .split('\n');
+  const out: string[] = [];
+  let list: string | null = null;
+  const close = () => {
+    if (list) out.push(`</${list}>`);
+    list = null;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]!;
+    const fence = l.match(/^\s*```/);
+    if (fence) {
+      close();
+      const code: string[] = [];
+      while (++i < lines.length && !/^\s*```/.test(lines[i]!)) code.push(lines[i]!);
+      out.push(`<pre class="payload">${esc(code.join('\n'))}</pre>`);
+      continue;
+    }
+    const tag = l.trim().match(/^<\/?(details|summary)>(.*?)(<\/summary>)?$/i);
+    if (tag) {
+      close();
+      out.push(
+        l
+          .trim()
+          .replace(/^<(\/?)(details|summary)>/i, '<$1$2>')
+          .replace(/<\/summary>$/i, '</summary>')
+          .replace(/<summary>(.*?)<\/summary>/i, (_, t: string) => `<summary>${inline(t)}</summary>`),
+      );
+      continue;
+    }
+    const h = l.match(/^(#{1,6})\s+(.*)$/);
+    const item = l.match(/^\s*([-*]|\d+\.)\s+(\[[ xX]\]\s+)?(.*)$/);
+    if (h) {
+      close();
+      out.push(`<div class="md-h">${inline(h[2]!)}</div>`);
+    } else if (item) {
+      const kind = /\d/.test(item[1]!) ? 'ol' : 'ul';
+      if (list !== kind) {
+        close();
+        out.push(`<${kind}>`);
+        list = kind;
+      }
+      const box = item[2] ? `<input type="checkbox" disabled ${/x/i.test(item[2]) ? 'checked' : ''}> ` : '';
+      out.push(`<li>${box}${inline(item[3]!)}</li>`);
+    } else if (/^\s*>/.test(l)) {
+      close();
+      out.push(`<blockquote>${inline(l.replace(/^\s*>\s?/, ''))}</blockquote>`);
+    } else if (/^\s*(---|\*\*\*)\s*$/.test(l)) {
+      close();
+      out.push('<hr>');
+    } else if (!l.trim()) {
+      close();
+    } else {
+      close();
+      out.push(`<p>${inline(l)}</p>`);
+    }
+  }
+  close();
+  return `<div class="md">${out.join('')}</div>`;
+};

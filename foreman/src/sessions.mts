@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { HOME, type Config } from './config.mts';
+import { roundDir } from './archive.mts';
 import { verifyRunDir } from './evidence.mts';
 import { journalPath } from './journal.mts';
 import type { BuildResult, FeedbackResult, RepoConfig, Running } from './types.mts';
@@ -37,10 +38,11 @@ export interface AgentSession {
 }
 
 /**
- * `state` is Claude Code's reading of the session's last message, so a turn that ends on a question reads `blocked`.
- * A `blocked` session still in its turn waits for permission; an `idle` one has ended, and its result file says how.
+ * `state` is Claude Code's reading of the session's last message, so a turn that ends on a question reads `blocked`, and
+ * an ended session can keep reading `working`. An `idle` session has ended whatever its state, and its result file says
+ * how; a `blocked` one still in its turn waits for permission.
  */
-const isRunning = (s: AgentSession) => s.state === 'working' || (s.state === 'blocked' && s.status !== 'idle');
+const isRunning = (s: AgentSession) => s.status !== 'idle' && (s.state === 'working' || s.state === 'blocked');
 
 /** Throws when Claude Code can't list its sessions: a tick that can't see them must not launch or record anything. */
 export const listSessions = (): AgentSession[] =>
@@ -85,7 +87,7 @@ export const readFeedbackResult = (path: string | undefined): FeedbackResult | n
   if (!path || !existsSync(path)) return null;
   try {
     const r = JSON.parse(readFileSync(path, 'utf8')) as FeedbackResult;
-    return ['fix', 'blocked', 'clean'].includes(r.outcome) && Array.isArray(r.findings) && Array.isArray(r.blocked) ? r : null;
+    return typeof r.commit === 'string' && Array.isArray(r.items) ? r : null;
   } catch {
     return null;
   }
@@ -176,7 +178,7 @@ export const launchFeedback = (
   const session = randomUUID();
   const id = `${issue.key}-feedback-${feedback.attempt}-${session.slice(0, 8)}`;
   const work = join(WORK, id);
-  const result = join(HOME, 'runs', issue.key, `feedback-${feedback.sha.slice(0, 7)}-${feedback.attempt}.json`);
+  const result = join(roundDir(issue.key, feedback.sha), 'feedback.json');
   const prompt = [
     config.feedback.skill,
     feedback.sha,
@@ -201,6 +203,7 @@ export const launchFeedback = (
     result,
     run: () => {
       mkdirSync(WORK, { recursive: true });
+      mkdirSync(roundDir(issue.key, feedback.sha), { recursive: true });
       git(repo.path, 'worktree', 'add', '--detach', work, resolveBase(repo.path, feedback.sha));
       execFileSync('claude', args, { cwd: work, env: cleanEnv(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     },

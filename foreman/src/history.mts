@@ -6,10 +6,10 @@ import { runSeconds } from './stats.mts';
 import type { Running } from './types.mts';
 import { cost, type Price } from './usage.mts';
 
-/** One thing on a feature's timeline: a stage run, a review request, or a park and un-park. */
+/** One thing on a feature's timeline: a stage run, a review request, a person's decision at a gate, or a park from before gates. */
 export interface Step {
   at: string;
-  kind: 'build' | 'verify' | 'feedback' | 'review' | 'park' | 'unpark';
+  kind: 'build' | 'verify' | 'feedback' | 'review' | 'gate' | 'park';
   /** `B2`, `V`, `F`, … */
   label: string;
   /** built, asked, passed, failed, blocked, invalid, fix, clean, none; `running` while it runs, `ended` once it has and is not recorded yet. */
@@ -26,8 +26,8 @@ export interface Step {
 
 type Ledger = ReturnType<typeof readComments>;
 
-/** Every stage run and park in a feature's ledger, oldest first, across epochs. */
-export const timeline = (ledger: Ledger, unparks: string[], running: Running[]): Step[] => {
+/** Every stage run and decision in a feature's ledger, oldest first, across epochs. */
+export const timeline = (ledger: Ledger, running: Running[]): Step[] => {
   const steps: Step[] = [];
   const isRunning = (stage: string) => running.some((r) => r.stage === stage);
   const lastOf = (stage: string) => ledger.launches.filter((l) => l.stage === stage).at(-1);
@@ -48,7 +48,7 @@ export const timeline = (ledger: Ledger, unparks: string[], running: Running[]):
   }
   for (const r of ledger.reviewRequests) steps.push({ at: r.at, kind: 'review', label: 'review', outcome: 'requested', sha: r.sha });
   for (const p of ledger.parks) steps.push({ at: p.at, kind: 'park', label: 'parked', outcome: 'parked', note: p.reason });
-  for (const at of unparks) steps.push({ at, kind: 'unpark', label: 'unparked', outcome: 'unparked' });
+  for (const d of ledger.decisions) steps.push({ at: d.at, kind: 'gate', label: d.gate === 'questions' ? 'Q' : 'G', outcome: d.next, sha: d.sha });
   return steps.sort((a, b) => a.at.localeCompare(b.at));
 };
 

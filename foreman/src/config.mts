@@ -34,7 +34,7 @@ const defaults = {
   maxConcurrent: 2,
   feedback: { skill: '/sdlc:feedback' },
   // A Terraform plan or an end-to-end suite can take most of an hour; two cover a slow queue too.
-  limits: { maxBuilds: 5, maxInvalidVerifies: 2, maxFeedbackRuns: 2, roundTimeoutMinutes: 120 },
+  limits: { roundTimeoutMinutes: 120 },
   serve: { port: 4519 },
 };
 
@@ -60,7 +60,7 @@ export const loadConfig = (): Config => {
     feedback: { ...defaults.feedback, ...raw.feedback },
     verify: { ...raw.verify },
     maxConcurrent: raw.maxConcurrent ?? defaults.maxConcurrent,
-    limits: { ...defaults.limits, ...raw.limits },
+    limits: { roundTimeoutMinutes: raw.limits?.roundTimeoutMinutes ?? defaults.limits.roundTimeoutMinutes },
     serve: { ...defaults.serve, ...raw.serve },
     prices: { ...DEFAULT_PRICES, ...raw.prices },
   };

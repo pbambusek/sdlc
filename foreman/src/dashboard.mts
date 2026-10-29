@@ -18,6 +18,8 @@ export interface Extra {
   seen: Record<string, Seen>;
   stats: FeatureStats[];
   journalPath: string;
+  /** Gates a person has decided since the last tick: their cards say foreman is acting on them. */
+  decided?: Set<string>;
 }
 
 const SYMBOL: Record<string, string> = {
@@ -33,12 +35,12 @@ const SYMBOL: Record<string, string> = {
   ended: '…',
 };
 const GOOD = new Set(['passed', 'clean']);
-const BAD = new Set(['failed', 'blocked', 'invalid', 'asked', 'none', 'parked']);
+const BAD = new Set(['failed', 'blocked', 'invalid', 'asked', 'none', 'parked', 'abandon']);
 
 const chip = (s: Step) => {
   if (s.outcome === 'running') return `<span class="chip run" title="running now">${esc(s.label)} running…</span>`;
   if (s.kind === 'park') return `<span class="chip bad" title="${esc(s.note ?? '')}">⏸ parked</span>`;
-  if (s.kind === 'unpark') return `<span class="chip ev">unparked</span>`;
+  if (s.kind === 'gate') return `<span class="chip ev" title="${esc(`decided on ${s.sha?.slice(0, 7) ?? ''}`)}">${esc(s.label)} → ${esc(s.outcome)}</span>`;
   if (s.kind === 'review') return `<span class="chip ev">review requested</span>`;
   const word = s.kind === 'build' && s.outcome === 'built' ? '' : ` ${s.outcome === 'ended' ? 'ended, not recorded' : s.outcome}`;
   const cls = GOOD.has(s.outcome) ? 'ok' : BAD.has(s.outcome) ? 'bad' : '';
@@ -51,20 +53,38 @@ const fact = (text: string, cls = '') => `<span class="fact ${cls}">${text}</spa
 const lastAt = (d: Row) => d.steps?.at(-1)?.at;
 
 /** What a feature needs from a person, as a card of facts and what to do, or null when it needs nothing. */
-const needCard = (d: Row): string | null => {
+const needCard = (d: Row, decided: Set<string> = new Set()): string | null => {
   const s = d.state;
   const card = (cls: string, todo: string) => {
     const last = lastAt(d);
-    const facts = [fact(esc(d.detail.split('\n')[0]!), cls === 'merge' ? 'good' : ''), last ? fact(when(last)) : '', d.spent?.usd ? fact(fmtUsd(d.spent.usd)) : ''];
+    const facts = [
+      fact(esc(d.detail.split('\n')[0]!), cls === 'merge' ? 'good' : ''),
+      last ? fact(when(last)) : '',
+      d.spent?.usd ? fact(fmtUsd(d.spent.usd)) : '',
+    ];
     return `<div class="ncard ${cls}"><div class="top"><span>${link(d.url, d.key, 'key')} <span class="title">${esc(d.summary)}</span></span><span class="state">${esc(s)}</span></div>
 <div class="facts">${facts.join('')}</div><div class="go">${todo}${d.pr ? ` ${prLink(d.pr)}` : ''}</div></div>`;
   };
-  if (s === 'parked' || s === 'parking') return card('unblock', 'Answer the park comment, then remove the <code>sdlc-parked</code> label.');
+  const open = (text: string) => (d.gate ? `<a class="btn" href="${esc(d.gate)}">${text}</a>` : text);
+  if ((s === 'gate open' || s === 'questions') && d.gate && decided.has(d.gate)) return card('wait', 'Decided: foreman is acting on it.');
+  if (s === 'gate open') return card('decide', open('Decide the round'));
+  if (s === 'questions') return card('decide', open('Answer the build’s questions'));
+  if (s === 'waiting for spec change') return card('unblock', open('Revise the spec, then approve it again'));
+  if (s === 'stalled') {
+    const stage = d.detail.split(':')[0]!;
+    const sha = d.gate?.split('/').pop() ?? '';
+    return card(
+      'unblock',
+      `<form method="post" action="/retry/${esc(d.key)}" class="inline"><input type="hidden" name="stage" value="${esc(stage)}"><button class="btn">Retry the ${esc(stage)}</button></form>` +
+        `<form method="post" action="/abandon/${esc(d.key)}" class="inline" onsubmit="return confirm('Abandon ${esc(d.key)}? Foreman closes its PR and starts nothing more on it.')"><input type="hidden" name="sha" value="${esc(sha)}"><button class="btn danger">Abandon</button></form>`,
+    );
+  }
+  if (s === 'ready to merge') return card('merge', open('Review and merge the pull request'));
+  if (s === 'waiting to merge') return card('wait', d.gate ? link(d.gate, 'Open the round') : '');
   if (s.endsWith('waiting for input')) return card('wait', 'Attach to the session: <code>claude attach &lt;id&gt;</code>.');
   if (s === 'approval invalid') return card('unblock', 'Fix the approval in Jira.');
   if (s === 'pr closed') return card('unblock', 'Reopen the pull request, or remove the <code>sdlc</code> label.');
   if (s === 'no repo') return card('unblock', 'Add the project under <code>repos</code> in the config.');
-  if (s === 'ready for review') return card('merge', 'Review and merge the pull request.');
   return null;
 };
 
@@ -81,7 +101,7 @@ const topBar = (page: 'now' | 'history', r: TickResult | null, x: Extra) => {
     ? `<div class="banner">The last tick had ${plural(r.errors.length, 'error')}:<ul>${r.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>`
     : '';
   return `<div class="topbar"><h1>foreman</h1><nav class="nav"><a href="/" ${page === 'now' ? 'aria-current="page"' : ''}>Now</a><a href="/history" ${page === 'history' ? 'aria-current="page"' : ''}>History</a></nav><span class="grow"></span>
-<div class="health">${r ? `<span>Last tick <b>${when(r.at)}</b></span>` : '<span class="warn">No tick yet: <code>foreman tick</code></span>'}${launchd}${day}</div></div>
+<div class="health">${r ? `<span>Last tick <b>${when(r.at)}</b></span>` : '<span class="warn">No tick yet: <code>foreman tick</code></span>'}${launchd}${day}<form method="post" action="/tick" class="inline"><button class="tickbtn" title="Run a tick now: launchd's when it is loaded, else one of the dashboard's own">Tick now</button></form></div></div>
 <div class="banner" id="stale" hidden data-every="${a?.loaded ? (a.every ?? 300) : 0}" data-at="${esc(r?.at ?? '')}"></div>${errors}`;
 };
 
@@ -96,13 +116,13 @@ const tiles = (t: Totals | undefined) => {
 <div class="tile"><div class="tlabel">Tasks run</div><div class="value">${runs}</div><div class="detail">${by}</div></div></div>`;
 };
 
-const ENDED = new Set(['merged', 'pr closed']);
+const ENDED = new Set(['merged', 'pr closed', 'abandoned']);
 
 export const nowPage = (r: TickResult | null, x: Extra) => {
   const rows = r?.decisions ?? [];
-  const needs = rows.map((d) => ({ d, card: needCard(d) })).filter((n) => n.card);
+  const needs = rows.map((d) => ({ d, card: needCard(d, x.decided) })).filter((n) => n.card);
   const running = rows.flatMap((d) => (d.steps ?? []).filter((s) => s.outcome === 'running').map((s) => ({ d, s })));
-  const rest = rows.filter((d) => !needCard(d) && !running.some((x) => x.d === d) && !ENDED.has(d.state));
+  const rest = rows.filter((d) => !needCard(d, x.decided) && !running.some((x) => x.d === d) && !ENDED.has(d.state));
   const runRows = running
     .map(
       ({ d, s }) =>
@@ -210,11 +230,15 @@ a:focus-visible { outline: 2px solid var(--bar); outline-offset: 1px; }
 .needs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .ncard { border: 1px solid var(--line); border-left: 3px solid var(--bar); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; align-content: start; min-width: 0; }
 .ncard.merge { border-left-color: var(--ok); } .ncard.wait { border-left-color: var(--amber); } .ncard.unblock { border-left-color: var(--warn); }
-.ncard .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; } .ncard .state { font-size: 12px; white-space: nowrap; font-weight: 500; color: var(--bar); }
+.ncard .top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline; } .ncard .state { font-size: 12px; white-space: nowrap; font-weight: 500; color: var(--bar); }
 .ncard.merge .state { color: var(--ok); } .ncard.wait .state { color: var(--amber); } .ncard.unblock .state { color: var(--warn); } .ncard .key { font-weight: 600; } .ncard .title { color: var(--muted); }
-.facts { display: flex; flex-wrap: wrap; gap: 4px; } .fact { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; line-height: 20px; white-space: nowrap; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px; } .fact { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; line-height: 20px; color: var(--muted); max-width: 100%; overflow-wrap: anywhere; }
 .fact.good { border-color: var(--ok); color: var(--ok); }
 .go { color: var(--muted); font-size: 13px; }
+.ncard.decide { border-left-color: var(--accent, #3446c9); } .ncard.decide .state { color: var(--accent, #3446c9); font-weight: 650; }
+.go .btn { display: inline-block; font: inherit; font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--fg); color: var(--bg); text-decoration: none; cursor: pointer; margin-right: 6px; }
+.go .btn.danger { background: none; color: var(--warn); } .go form.inline { display: inline; }
+.health form.inline { display: inline; } .tickbtn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 2px 10px; border-radius: 7px; border: 1px solid var(--line); background: none; color: inherit; cursor: pointer; }
 .quiet { color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; }
 table { border-collapse: collapse; width: 100%; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; } th { color: var(--muted); font-weight: 500; }
 .num { font-variant-numeric: tabular-nums; } td.r, th.r { text-align: right; } .scroll { overflow-x: auto; }

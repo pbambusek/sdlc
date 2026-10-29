@@ -3,6 +3,36 @@
   "pr": "https://github.com/example/shop/pull/42",
   "items": [
     {
+      "item": "claim:C1",
+      "status": "shown",
+      "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/evidence.json"
+    },
+    {
+      "item": "claim:C3",
+      "status": "not-shown",
+      "reason": "The cart total stayed at 0 after adding two items.",
+      "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/evidence.json"
+    },
+    {
+      "item": "probe:X1",
+      "status": "not-shown",
+      "reason": "An empty coupon code is accepted and applies a 100% discount.",
+      "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/evidence.json"
+    },
+    {
+      "item": "review:2210345",
+      "status": "approved",
+      "by": "alex"
+    },
+    {
+      "item": "thread:https://github.com/example/shop/pull/42#discussion_r1001",
+      "status": "open",
+      "by": "sam",
+      "mark": "nit",
+      "observed": "nit: name this `cartTotal`, it isn't a count.",
+      "where": "src/cart.ts:18"
+    },
+    {
       "item": "check:test.yml / unit",
       "status": "success"
     },
@@ -25,40 +55,10 @@
       "status": "missing"
     },
     {
-      "item": "claim:C1",
-      "status": "shown",
-      "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/evidence.json"
-    },
-    {
-      "item": "claim:C3",
-      "status": "not-shown",
-      "reason": "The cart total stayed at 0 after adding two items.",
-      "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/evidence.json"
-    },
-    {
-      "item": "probe:X1",
-      "status": "not-shown",
-      "reason": "An empty coupon code is accepted and applies a 100% discount.",
-      "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/evidence.json"
-    },
-    {
       "item": "audit",
       "status": "clean",
       "observed": "Audit: clean, none of 41 tool calls reached for how the code was written.",
       "link": ".verify/checkout/2026-01-05T10-00-00Z-4f9c2e1/audit.json"
-    },
-    {
-      "item": "review:2210345",
-      "status": "approved",
-      "by": "alex"
-    },
-    {
-      "item": "thread:https://github.com/example/shop/pull/42#discussion_r1001",
-      "status": "open",
-      "by": "sam",
-      "mark": "nit",
-      "observed": "nit: name this `cartTotal`, it isn't a count.",
-      "where": "src/cart.ts:18"
     },
     {
       "item": "base",

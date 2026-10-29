@@ -56,7 +56,7 @@ export const jiraClient = (config: Config) => {
   const rejected = (res: Response) =>
     res.status === 401 || /AUTHENTICAT(ED|ION)_FAILED|AUTHENTICATION_DENIED/.test(res.headers.get('x-seraph-loginreason') ?? '');
 
-  const call = async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
+  const call = async <T,>(method: string, path: string, body?: unknown, raw = false): Promise<T> => {
     auth ??= `Basic ${Buffer.from(`${config.jira.email}:${token(config.jira.email)}`).toString('base64')}`;
     let res: Response;
     if (api) res = await send(api, method, path, body);
@@ -76,6 +76,7 @@ export const jiraClient = (config: Config) => {
       throw new Error(`Jira rejected the token for ${config.jira.email} (${method} ${path}, ${res.status}).${why}`);
     }
     if (!res.ok) throw new Error(`Jira ${method} ${path}: ${res.status} ${(await res.text()).slice(0, 300)}`);
+    if (raw) return Buffer.from(await res.arrayBuffer()) as T;
     return (res.status === 204 ? undefined : await res.json()) as T;
   };
 
@@ -143,7 +144,8 @@ export const jiraClient = (config: Config) => {
       return files.map((f) => created.find((c) => c.filename === f.name)?.id ?? '');
     },
 
-    addLabel: (key: string, label: string) => call('PUT', `/rest/api/3/issue/${key}`, { update: { labels: [{ add: label }] } }),
+    /** An attachment's content, to restore a file the archive lost: Jira keeps every output and decision foreman attached. */
+    download: (id: string) => call<Buffer>('GET', `/rest/api/3/attachment/content/${id}`, undefined, true),
   };
 };
 

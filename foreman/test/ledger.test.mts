@@ -1,7 +1,19 @@
 import { expect, test } from 'vitest';
 import { adfToMarkdown, textToAdf } from '../src/adf.mts';
 import { classify } from '../src/evidence.mts';
-import { buildComment, feedbackComment, launchComment, readApproval, readComments, reportComment, reviewComment, type ChangelogEntry } from '../src/ledger.mts';
+import {
+  buildComment,
+  decidedComment,
+  feedbackComment,
+  readyComment,
+  retryComment,
+  launchComment,
+  readApproval,
+  readComments,
+  reportComment,
+  reviewComment,
+  type ChangelogEntry,
+} from '../src/ledger.mts';
 
 const t = (m: number) => new Date(Date.UTC(2026, 9, 7, 10, m)).toISOString();
 const labels = (at: string, accountId: string, from: string, to: string): ChangelogEntry => ({
@@ -24,8 +36,12 @@ test('an approval counts only from an approver, and only until the description c
   );
 });
 
-test('un-parking starts a new epoch', () => {
-  const log = [labels(t(1), 'ann', 'sdlc', 'sdlc sdlc-approved'), labels(t(5), 'ann', 'sdlc sdlc-approved sdlc-parked', 'sdlc sdlc-approved')];
+test('a new approval starts a new epoch', () => {
+  const log = [
+    labels(t(1), 'ann', 'sdlc', 'sdlc sdlc-approved'),
+    labels(t(3), 'ann', 'sdlc sdlc-approved', 'sdlc'),
+    labels(t(5), 'ann', 'sdlc', 'sdlc sdlc-approved'),
+  ];
   expect(readApproval(['sdlc', 'sdlc-approved'], log, ['ann'], t(0)).epoch).toBe(t(5));
 });
 
@@ -132,30 +148,41 @@ test('a build result round-trips, with its questions for people below the fields
   ]);
 });
 
-test('a feedback result, its launch and a review request round-trip', () => {
+test('a feedback result, its launch, a decision, a retry and a review request round-trip', () => {
   const sha = 'f'.repeat(40);
-  const launch = { stage: 'feedback' as const, at: t(0), attempt: 1, sha, session: 's2', work: '/w/PROJ-1-feedback-1', result: '/r/feedback-fffffff-1.json' };
+  const launch = { stage: 'feedback' as const, at: t(0), attempt: 1, sha, session: 's2', work: '/w/PROJ-1-feedback-1', result: '/a/rounds/f/feedback.json' };
   const result = {
     commit: sha,
-    outcome: 'fix' as const,
-    findings: [
-      { id: 'F1', source: 'ci:test', kind: 'bar', severity: 'blocking' as const, observed: 'login.spec.ts fails: expected 200, got 500' },
-      { id: 'F2', source: 'review:rev', kind: 'bar', severity: 'advisory' as const, observed: 'a nit' },
+    items: [
+      { item: 'claim:C1', status: 'shown' },
+      { item: 'check:test.yml / unit', status: 'failure', observed: 'login.spec.ts fails: expected 200, got 500' },
+      { item: 'thread:https://example.com/pull/7#discussion_r12', status: 'open', mark: 'nit' },
     ],
-    blocked: [{ source: 'ci:e2e', reason: 'runner lost' }],
   };
-  const text = feedbackComment(launch, result, 'feedback-fffffff-1.json');
-  expect(text).toMatch(/1 blocking and 1 advisory findings, 1 signals nobody could read\.\n- F1 \(ci:test\): login\.spec\.ts fails/);
+  const text = feedbackComment(launch, result, '/a/rounds/f/feedback.json', '901');
+  expect(text).toMatch(/3 items, 2 to decide\.\n- check:test\.yml \/ unit: failure\n- thread:/);
+  const decided = decidedComment(
+    { gate: 'round', sha, next: 'build', commit: true, replies: 0, file: '/a/rounds/f/feedback-decided.json', attachment: '902' },
+    ['- check:test.yml / unit: Fix'],
+  );
   const r = readComments([
     { at: t(1), text: adfToMarkdown(textToAdf(launchComment(launch, 'note'))) },
     { at: t(2), text: adfToMarkdown(textToAdf(text)) },
     { at: t(3), text: adfToMarkdown(textToAdf(feedbackComment(launch, null))) },
     { at: t(4), text: adfToMarkdown(textToAdf(reviewComment(sha, 'Asked for a review.'))) },
+    { at: t(5), text: adfToMarkdown(textToAdf(decided)) },
+    { at: t(6), text: adfToMarkdown(textToAdf(retryComment('verify', 'Ann'))) },
+    { at: t(7), text: adfToMarkdown(textToAdf(readyComment(sha, 'pr'))) },
   ]);
-  expect(r.launches.map((l) => [l.stage, l.sha, l.session, l.result])).toStrictEqual([['feedback', sha, 's2', '/r/feedback-fffffff-1.json']]);
-  expect(r.feedbacks.map((o) => [o.attempt, o.sha, o.session, o.outcome, o.file])).toStrictEqual([
-    [1, sha, 's2', 'fix', 'feedback-fffffff-1.json'],
-    [1, sha, 's2', 'none', undefined],
+  expect(r.launches.map((l) => [l.stage, l.sha, l.session, l.result])).toStrictEqual([['feedback', sha, 's2', '/a/rounds/f/feedback.json']]);
+  expect(r.feedbacks.map((o) => [o.attempt, o.sha, o.session, o.outcome, o.file, o.attachment])).toStrictEqual([
+    [1, sha, 's2', 'read', '/a/rounds/f/feedback.json', '901'],
+    [1, sha, 's2', 'none', undefined, undefined],
   ]);
+  expect(r.decisions).toStrictEqual([
+    { at: t(5), gate: 'round', sha, build: undefined, next: 'build', commit: true, replies: 0, file: '/a/rounds/f/feedback-decided.json', attachment: '902' },
+  ]);
+  expect(r.retries).toStrictEqual([{ at: t(6), stage: 'verify' }]);
+  expect(r.readies).toStrictEqual([sha]);
   expect(r.reviewRequests).toStrictEqual([{ at: t(4), sha }]);
 });

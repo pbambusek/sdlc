@@ -39,7 +39,7 @@ export interface BuildResult {
   branch?: string;
   commit?: string | null;
   review?: string | null;
-  questions?: { about?: string[]; question: string; recommended?: string }[];
+  questions?: { id?: string; about?: string[]; question: string; recommended?: string }[];
 }
 
 /** A `[sdlc] build-result …` comment: how a build ended, `none` when it wrote no result. */
@@ -65,12 +65,28 @@ export interface Report {
   run?: string;
 }
 
-/** What the feedback skill writes to its output file; the tick reads only the outcome. */
+/** One item of a feedback file: a signal named by what it is about, with its status in its source's own terms. */
+export interface FeedbackItem {
+  item: string;
+  status: string;
+  observed?: string;
+  reason?: string;
+  rule?: string;
+  where?: string;
+  link?: string;
+  by?: string;
+  mark?: string;
+  calls?: string[];
+  /** A build's question: the claims or items it is about, and the build's recommended answer. */
+  about?: string[];
+  recommended?: string;
+}
+
+/** What the feedback skill writes to its output file. */
 export interface FeedbackResult {
   commit: string;
-  outcome: 'fix' | 'blocked' | 'clean';
-  findings: { id: string; source: string; kind: string; about?: string[]; severity: 'blocking' | 'advisory'; observed: string }[];
-  blocked: { source: string; reason: string }[];
+  pr?: string;
+  items: FeedbackItem[];
 }
 
 /** A `[sdlc] feedback-result …` comment: how a feedback run ended, `none` when it wrote no output. */
@@ -79,9 +95,27 @@ export interface FeedbackOutcome {
   attempt: number;
   sha: string;
   session?: string;
-  outcome: FeedbackResult['outcome'] | 'none';
-  /** The output's name under the archive, for the next build. */
+  outcome: 'read' | 'none';
+  /** The round's feedback file, and its Jira attachment id. */
   file?: string;
+  attachment?: string;
+}
+
+/** A `[sdlc] decided …` comment: a person's decisions at a gate, attached to the issue as the decided document. */
+export interface Decided {
+  at: string;
+  gate: 'round' | 'questions';
+  /** round: the head it decided; questions: the commit the build asked on, or `none`. */
+  sha: string;
+  /** questions: the build that asked. */
+  build?: number;
+  next: 'abandon' | 'respec' | 'build' | 'done';
+  /** Whether the build it starts must push a commit. */
+  commit: boolean;
+  /** How many review threads foreman answers with the person's words. */
+  replies: number;
+  file?: string;
+  attachment?: string;
 }
 
 /** A `[sdlc] review-requested …` comment. */
@@ -134,13 +168,19 @@ export interface Evidence {
   log: string | null;
 }
 
+/** Whether GitHub would merge the PR with nothing missing but a person's approval, and why not. */
+export interface Mergeability {
+  ready: boolean;
+  why: string;
+  base: string;
+}
+
 export interface Feature {
   key: string;
   summary: string;
   url: string;
-  parked: boolean;
   approval: Approval;
-  /** Everything before this (the latest approval or un-park) is history and no longer counts. */
+  /** Everything before this (the latest approval) is history and no longer counts. */
   epoch: string | null;
   repo: RepoConfig | null;
   /** The build's branch, as the latest build result named it. */
@@ -165,6 +205,16 @@ export interface Feature {
   finishedFeedback: { launch: Launch; result: FeedbackResult | null } | null;
   /** The PR head's round, once it has been verified; null before. */
   round: Round | null;
+  /** Since the epoch: every gate a person decided. */
+  decisions: Decided[];
+  /** Since the epoch: when a person asked a stalled stage to run again. */
+  retries: { at: string; stage: Stage }[];
+  /** Heads foreman marked ready to merge. */
+  readies: string[];
+  /** Heads whose decided review threads foreman has answered. */
+  replied: string[];
+  /** Whether the PR can merge, read once a round on its head is decided. */
+  merge: Mergeability | null;
 }
 
 export type Action =
@@ -175,7 +225,9 @@ export type Action =
   | { kind: 'launch-feedback'; attempt: number; sha: string; run: string | null }
   | { kind: 'record-feedback'; launch: Launch; result: FeedbackResult | null }
   | { kind: 'report'; evidence: Evidence }
-  | { kind: 'park'; reason: string }
+  | { kind: 'ready'; sha: string }
+  | { kind: 'close-pr' }
+  | { kind: 'post-replies'; sha: string; file: string }
   | { kind: 'notice'; code: string; text: string };
 
 export interface Decision {
@@ -183,15 +235,11 @@ export interface Decision {
   state: string;
   detail: string;
   actions: Action[];
+  /** The dashboard page where a person decides or follows this state, when there is one. */
+  gate?: string;
 }
 
 export interface Limits {
-  /** Builds per feature over its whole life, first build and fix rounds together: an un-park does not reset it. */
-  maxBuilds: number;
-  /** Verify runs per commit that end without a valid result. */
-  maxInvalidVerifies: number;
-  /** Feedback runs per commit that end without an output. */
-  maxFeedbackRuns: number;
   /** Minutes after a head's first verify launch that the round stops waiting for checks still running. */
   roundTimeoutMinutes: number;
 }

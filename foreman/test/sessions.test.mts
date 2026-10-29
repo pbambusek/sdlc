@@ -13,3 +13,6 @@ test('a blocked session that went idle has ended, so the tick reads its result',
   expect(stages(session({ status: 'idle', state: 'blocked' }))).toStrictEqual([]));
 
 test('a done session has ended', () => expect(stages(session({ status: 'idle', state: 'done' }))).toStrictEqual([]));
+
+test('an idle session has ended, even when its state still reads working', () =>
+  expect(stages(session({ status: 'idle', state: 'working' }))).toStrictEqual([]));

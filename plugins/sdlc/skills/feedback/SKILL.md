@@ -39,6 +39,7 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
 5. **Review.** Read every review submitted on this commit and every unresolved thread, whatever commit it started on. Skip comments by the pull request's author, and reviewers `FEEDBACK.md` excludes.
    - one `review:<id>` item per review, by the review's id: its status is its state (`approved`, `changes-requested`, `commented`), and `observed` its body, verbatim, when it has one;
    - one `thread:<url>` item per unresolved thread, by its first comment's URL: status `open`, `observed` the first comment, verbatim, `where` its file and line.
+   - a thread whose last comment is the pull request author's has been answered: skip it, and never read it again. A reviewer's comment after that answer is a new item, `thread:<url of that comment>`, with that comment as `observed`.
 
    `by` is the reviewer's login. `mark` is the reviewer's own mark on it when it has one (`nit`, `suggestion`, `critical`), verbatim. Done when every unresolved thread and every review on the commit is an item or skipped by rule.
 
@@ -47,4 +48,4 @@ When asked to set a project up, follow [setup.md](setup.md). A repo without `FEE
 
 ## Feedback
 
-[assets/example/feedback.json](assets/example/feedback.json) shows the shape: `commit`, `pr`, and `items`, each with its `item` name and `status`, and only the fields its step gives it. Exactly this shape: no other fields, no ids, no summary.
+[assets/example/feedback.json](assets/example/feedback.json) shows the shape: `commit`, `pr`, and `items`, each with its `item` name and `status`, and only the fields its step gives it. The items always come in this order, so a reader finds them in the same place every round: claims, probes, reviews, threads, checks, the audit, then base; within each, in the order their source lists them. Exactly this shape: no other fields, no ids, no summary.

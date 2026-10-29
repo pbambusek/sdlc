@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import type { Run } from '../src/archive.mts';
 import { readJournal, timeline, withRuns } from '../src/history.mts';
-import { buildComment, feedbackComment, launchComment, parkComment, readComments, reportComment, reviewComment } from '../src/ledger.mts';
+import { buildComment, decidedComment, feedbackComment, launchComment, readComments, reportComment, reviewComment } from '../src/ledger.mts';
 import { emptyUsage } from '../src/usage.mts';
 
 const t = (m: number) => new Date(Date.UTC(2026, 9, 7, 10, m)).toISOString();
@@ -18,34 +18,35 @@ const ledger = () =>
     { at: t(21), text: launchComment({ stage: 'feedback', attempt: 1, sha: A, session: 'f1' }, 'n') },
     {
       at: t(25),
-      text: feedbackComment({ stage: 'feedback', at: t(21), attempt: 1, sha: A, session: 'f1' }, { commit: A, outcome: 'fix', findings: [], blocked: [] }),
+      text: feedbackComment(
+        { stage: 'feedback', at: t(21), attempt: 1, sha: A, session: 'f1' },
+        { commit: A, items: [{ item: 'claim:C2', status: 'not-shown' }] },
+      ),
     },
     { at: t(26), text: launchComment({ stage: 'build', attempt: 2, base: A, session: 's2' }, 'n') },
     { at: t(30), text: buildComment({ stage: 'build', at: t(26), attempt: 2, session: 's2' }, { outcome: 'built', branch: 'b', commit: B }) },
     { at: t(31), text: launchComment({ stage: 'verify', attempt: 1, sha: B, log: '/l2' }, 'n') },
     { at: t(40), text: reportComment(B, 'blocked', 'could not check claim 2') },
-    { at: t(41), text: parkComment('Verify could not check every claim.') },
+    { at: t(41), text: decidedComment({ gate: 'round', sha: B, next: 'respec', commit: false }, ['- claim:C2: Change the claim']) },
     { at: t(50), text: launchComment({ stage: 'verify', attempt: 1, sha: B, log: '/l3' }, 'n') },
   ]);
 
-test('a timeline lists every run with its outcome, across a park and an un-park', () => {
-  const steps = timeline(ledger(), [t(45)], [{ stage: 'verify', label: 'verify launcher', state: 'running' }]);
+test('a timeline lists every run with its outcome, and each decision at a gate', () => {
+  const steps = timeline(ledger(), [{ stage: 'verify', label: 'verify launcher', state: 'running' }]);
   expect(steps.map((s) => `${s.label} ${s.outcome}`)).toStrictEqual([
     'B1 built',
     'V failed',
     'review requested',
-    'F fix',
+    'F read',
     'B2 built',
     'V blocked',
-    'parked parked',
-    'unparked unparked',
+    'G respec',
     'V running',
   ]);
-  expect(steps.find((s) => s.kind === 'park')?.note).toBe('Verify could not check every claim.');
 });
 
 test('a run that has ended but is not recorded shows as ended, not running', () => {
-  const steps = timeline(ledger(), [], []);
+  const steps = timeline(ledger(), []);
   expect(steps.at(-1)?.outcome).toBe('ended');
 });
 
@@ -53,7 +54,7 @@ test('runs pick up time and cost from the archive: builds by session, verify run
   const usage = { ...emptyUsage(), turns: 7, seconds: 120 };
   const run = (over: Partial<Run>): Run => ({ key: 'PROJ-1', stage: 'build', at: t(0), outcome: 'built', session: null, usage, ...over });
   const runs = [run({ session: 's1' }), run({ stage: 'verify', sha: A, outcome: 'failed', launcher: { code: 0, seconds: 600 } })];
-  const steps = withRuns(timeline(ledger(), [], []), runs, {});
+  const steps = withRuns(timeline(ledger(), []), runs, {});
   expect(steps[0]!.turns).toBe(7);
   expect(steps[0]!.seconds).toBe(120);
   expect(steps.find((s) => s.kind === 'verify')!.seconds).toBe(600);

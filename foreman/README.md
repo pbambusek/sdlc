@@ -6,9 +6,10 @@ What it assumes from people and stages is in [CONTRACT.md](CONTRACT.md). The ski
 
 ```
                                ┌─ verify ─┐
-approved ─► build ─► PR head ─►├─ CI ─────┤─► all finished ─► feedback ─► clean ─► ready for review (a person merges)
-              ▲                └─ review ─┘                       │
-              └───────────────────────── fix ─────────────────────┘   blocked, a build's question, or too many rounds ─► parked (a person continues)
+approved ─► build ─► PR head ─►├─ CI ─────┤─► all finished ─► feedback ─► round gate ─► nothing to build ─► ready to merge (a person merges)
+              ▲  │             └─ review ─┘                                    │
+              │  └─ asked ─► question gate ──────────────────────────────────┐  ├─ change the claim ─► you revise the spec and approve it again
+              └─────────────────────── build with the decided document ─────┴──┘
 ```
 
 A round is one PR head: verify, CI and the review all run on it, and the build gets one feedback about all of them, never a part.
@@ -44,9 +45,10 @@ A verify run is foreman's launcher, a detached process running a headless sessio
 
 ## The dashboard
 
-`foreman serve` runs the dashboard at `http://127.0.0.1:<serve.port>/` (4519 by default), on the loopback only, so another machine can't reach it. It opens it in the browser and prints its address; `foreman status` prints it too while it runs. It only shows: each page renders from `~/.sdlc/last-tick.json`, which every saved tick writes, the archive and the journal, and reloads itself each minute. A dry run or `--only` tick does not save it.
+`foreman serve` runs the dashboard at `http://127.0.0.1:<serve.port>/` (4519 by default), on the loopback only, so another machine can't reach it. It opens it in the browser and prints its address; `foreman status` prints it too while it runs. Each page renders from `~/.sdlc/last-tick.json`, which every saved tick writes, the archive and the journal, and reloads itself each minute. The only writes are a person's decisions at a gate, a retry and an abandon, taken only from its own pages: each goes to the issue in Jira, and a tick starts right away to act on it. **Tick now** starts one by hand: launchd's job when it is loaded, else one of the dashboard's own; a tick's lock keeps two from running at once. A dry run or `--only` tick does not save it.
 
-- **Now**: the tick's health (when it last ran, launchd's state and last exit code, errors in the last 24 h, and a banner when no tick has run for two intervals); spend, agent time and tasks run by stage since tracking began; **Needs you**, a card per issue waiting on a person (parked, a session waiting for permission, an invalid approval, no repo, a closed PR, ready for review) with only the facts foreman holds and what to do; what is running, with how long; and the rest in flight, each with its rounds from the ledger, such as `B1 ✓ → V ✗ failed → F ↻ fix → B2 ✓`.
+- **Now**: the tick's health (when it last ran, launchd's state and last exit code, errors in the last 24 h, and a banner when no tick has run for two intervals); spend, agent time and tasks run by stage since tracking began; **Needs you**, a card per issue waiting on a person (a round or question gate to decide, a spec to revise, a stalled stage, a session waiting for permission, an invalid approval, no repo, a closed PR, ready to merge) with only the facts foreman holds and what to do; what is running, with how long; and the rest in flight, each with its rounds from the ledger, such as `B1 ✓ → V ✗ failed → F read → G → build → B2 ✓`.
+- **Gates**: `/round/<KEY>/<sha>` and `/questions/<KEY>/<n>`, where a person decides a round or a build's questions ([CONTRACT.md](CONTRACT.md#the-gates)).
 - **History**: issues that have ended or left the JQL, with how they ended, their rounds, agent time and cost; the activity from the journal, with ticks that did nothing folded into one line; spend per day for the last 14 days.
 
 ## Verify runs
@@ -100,7 +102,7 @@ The agent is `~/Library/LaunchAgents/com.sdlc.foreman.plist`. A tick writes the 
 - `work/`: the worktrees of running builds.
 - `runs/<KEY>/`: the spec snapshot of each approval, each build's result file (read once, when the build ends), and each verify run's launcher log.
 - `features.json`: each feature a saved tick has seen, as it last saw it, for the history page.
-- `archive/<KEY>/`: per feature, `manifest.jsonl` (one line per stage run, with its usage), the transcript of every build and verifier session with its subagents' transcripts, and every verify run's folder, which the launcher writes there and a fix build reads as its report. Claude Code deletes transcripts after `cleanupPeriodDays`; this copy keeps them. Transcripts can hold secrets: the archive stays on this machine.
+- `archive/<KEY>/`: per feature, `manifest.jsonl` (one line per stage run, with its usage), the transcript of every build and verifier session with its subagents' transcripts, every verify run's folder, which the launcher writes there, and each round's folder (`rounds/<sha>/`: the feedback, the decided document, and `problems.md` for a spec change) and each asking build's questions (`questions/build-<n>/`). Claude Code deletes transcripts after `cleanupPeriodDays`; this copy keeps them. Transcripts can hold secrets: the archive stays on this machine.
 
 Deleting `~/.sdlc/` (except the config) while nothing runs loses history and the reports for the next fix builds, never a decision: the ledger is Jira and GitHub.
 
