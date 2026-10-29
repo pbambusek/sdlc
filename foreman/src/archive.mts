@@ -109,7 +109,7 @@ export const archiveVerify = (key: string, e: Evidence) => {
   });
 };
 
-// ---- reading back, for stats and the status page
+// ---- reading back, for stats and the dashboard
 
 export interface Run {
   key: string;

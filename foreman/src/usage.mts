@@ -1,5 +1,5 @@
 // What a stage run cost: tokens, turns, tools and time, read from its Claude Code transcript and its subagents'.
-// Nothing here decides anything; the archive stores a summary per run, and stats and the status page add them up.
+// Nothing here decides anything; the archive stores a summary per run, and stats and the dashboard add them up.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -163,7 +163,7 @@ export const cacheHit = (t: Tokens) => {
   return all ? t.cacheRead / all : 0;
 };
 
-// ---- formatting, shared by stats and the status page
+// ---- formatting, shared by stats and the dashboard
 
 export const fmtTokens = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 export const fmtUsd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);

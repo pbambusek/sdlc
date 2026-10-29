@@ -22,7 +22,9 @@ export interface Config {
   verify: { model?: string };
   maxConcurrent: number;
   limits: Limits;
-  /** Dollars per million tokens by model id, over the list prices in usage.mts: what stats and the status page charge. */
+  /** The dashboard: `foreman serve` listens on this port, on this machine only. */
+  serve: { port: number };
+  /** Dollars per million tokens by model id, over the list prices in usage.mts: what stats and the dashboard charge. */
   prices: Record<string, Price>;
 }
 
@@ -33,6 +35,7 @@ const defaults = {
   feedback: { skill: '/sdlc:feedback' },
   // A Terraform plan or an end-to-end suite can take most of an hour; two cover a slow queue too.
   limits: { maxBuilds: 5, maxInvalidVerifies: 2, maxFeedbackRuns: 2, roundTimeoutMinutes: 120 },
+  serve: { port: 4519 },
 };
 
 export const configPath = () => process.env.SDLC_CONFIG ?? join(HOME, 'config.json');
@@ -58,6 +61,7 @@ export const loadConfig = (): Config => {
     verify: { ...raw.verify },
     maxConcurrent: raw.maxConcurrent ?? defaults.maxConcurrent,
     limits: { ...defaults.limits, ...raw.limits },
+    serve: { ...defaults.serve, ...raw.serve },
     prices: { ...DEFAULT_PRICES, ...raw.prices },
   };
 };

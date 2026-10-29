@@ -36,7 +36,7 @@ import {
   type AgentSession,
 } from './sessions.mts';
 import { runSeconds, totals } from './stats.mts';
-import type { Action, Decision, Feature } from './types.mts';
+import type { Action, Decision, Feature, Stage } from './types.mts';
 import { cost, sessionUsage } from './usage.mts';
 
 export interface Observed {
@@ -148,11 +148,12 @@ export interface Spent {
   live: { usd: number; tokens: number; seconds: number } | null;
 }
 
-/** Archived runs by when they started. */
-export interface Spend {
-  today: { usd: number; runs: number; seconds: number };
-  week: { usd: number; runs: number; seconds: number };
-  all: { usd: number; runs: number; seconds: number };
+/** Every archived run since tracking began. */
+export interface Totals {
+  since: string | null;
+  usd: number;
+  seconds: number;
+  tasks: Record<Stage, number>;
 }
 
 export interface TickResult {
@@ -160,7 +161,7 @@ export interface TickResult {
   dryRun: boolean;
   decisions: (Decision & { summary: string; url: string; pr: string | null; done: string[]; spent?: Spent; steps?: Step[] })[];
   errors: string[];
-  spend?: Spend;
+  totals?: Totals;
 }
 
 const allTokens = (t: { input: number; output: number; cacheRead: number; cacheWrite5m: number; cacheWrite1h: number }) =>
@@ -207,16 +208,12 @@ const stepsFor = (config: Config, key: string, steps: Step[]) => {
   }
 };
 
-const spendSince = (config: Config, now: number): Spend | undefined => {
+export const totalsSince = (config: Config): Totals | undefined => {
   try {
     const runs = loadRuns();
-    const day = new Date(now);
-    day.setHours(0, 0, 0, 0);
-    const sum = (from: string) => {
-      const mine = runs.filter((r) => r.at >= from);
-      return { usd: totals(mine, config.prices).usd, runs: mine.length, seconds: mine.reduce((n, r) => n + runSeconds(r), 0) };
-    };
-    return { today: sum(day.toISOString()), week: sum(new Date(now - 7 * 86400e3).toISOString()), all: sum('') };
+    const tasks: Record<Stage, number> = { build: 0, verify: 0, feedback: 0 };
+    for (const r of runs) tasks[r.stage]++;
+    return { since: runs[0]?.at ?? null, usd: totals(runs, config.prices).usd, seconds: runs.reduce((n, r) => n + runSeconds(r), 0), tasks };
   } catch {
     return undefined;
   }
@@ -269,7 +266,7 @@ export const tick = async (config: Config, jira: Jira, opts: { dryRun: boolean; 
     row.spent = spentFor(config, feature);
     row.steps = stepsFor(config, feature.key, steps);
   }
-  result.spend = spendSince(config, Date.now());
+  result.totals = totalsSince(config);
   return result;
 };
 

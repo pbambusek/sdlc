@@ -1,4 +1,4 @@
-// foreman <command>: tick, verify, status, stats, install, uninstall, kick, whoami, doctor.
+// foreman <command>: tick, serve, verify, status, stats, install, uninstall, kick, whoami, doctor.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,13 +9,15 @@ import { journal, journalPath } from './journal.mts';
 import { agentInfo, install, kick, uninstall } from './launchd.mts';
 import { LAUNCHER, PLUGIN_DIR } from './sessions.mts';
 import { byFeature, featureTable, parseSince, runTable, totals } from './stats.mts';
-import { header, loadLastTick, saveTick, statusPagePath, table } from './status.mts';
+import { dashboardAddress, serve } from './server.mts';
+import { header, loadLastTick, saveTick, table } from './status.mts';
 import { tick } from './tick.mts';
 
 const USAGE = `usage: foreman <command>
   tick [--dry-run] [--only KEY]   observe every issue in the ledger, decide, act
+  serve                           the dashboard, on this machine only: what needs you, what runs, history
   verify <args>                   one verify run by hand, outside the loop (no args prints its usage)
-  status [--live]                 the last tick's table (--live: observe now, act on nothing)
+  status [--live]                 the last tick's table and the dashboard's address (--live: observe now, act on nothing)
   stats [KEY] [--since 7d] [--json]  tokens, cost, time and rounds from the archive (KEY: each of its runs)
   install [--every <seconds>]     run tick from launchd (default every 300 s)
   uninstall                       stop and remove the launchd agent
@@ -87,7 +89,7 @@ const main = async () => {
         };
         log(`start${dryRun ? ', dry run' : ''}${only ? `, only ${only}` : ''} (pid ${process.pid})`);
         const r = await tick(config, jiraClient(config), { dryRun, only, log });
-        if (!dryRun && !only) saveTick(r, config);
+        if (!dryRun && !only) saveTick(r);
         j.write(`done in ${((Date.now() - Date.parse(r.at)) / 1000).toFixed(1)} s${r.errors.length ? `, ${r.errors.length} error(s)` : ''}\n${table(r)}`);
         console.log(`${stamp()} ${header(r, 'tick')}\n${table(r)}`);
         if (r.errors.length) process.exitCode = 1;
@@ -104,7 +106,14 @@ const main = async () => {
         console.log(header(r, 'last tick'));
         if (r) console.log(table(r));
       }
-      console.log(`\n${agentInfo()}\npage: ${statusPagePath()}\nlog:  ${journalPath()} (foreman log -f)`);
+      console.log(`\n${agentInfo()}\ndashboard: ${dashboardAddress() ?? 'not running; start it with foreman serve'}\nlog:  ${journalPath()} (foreman log -f)`);
+      return;
+    }
+    case 'serve': {
+      const { url } = await serve({ config: loadConfig() });
+      console.log(`dashboard at ${url} (this machine only); stop it with ctrl-c`);
+      // Runs until stopped; each page reads the last tick, so launchd's ticks keep it current.
+      await new Promise(() => {});
       return;
     }
     case 'stats': {

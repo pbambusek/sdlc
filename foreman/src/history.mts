@@ -1,5 +1,5 @@
 // What has happened, for people: each feature's rounds from its ledger, and the activity in the journal. Pure: the
-// status page reads them, nothing decides from them.
+// dashboard reads them, nothing decides from them.
 import type { Run } from './archive.mts';
 import type { readComments } from './ledger.mts';
 import { runSeconds } from './stats.mts';

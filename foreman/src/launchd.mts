@@ -74,7 +74,7 @@ export const loaded = () => {
   }
 };
 
-/** The agent as the status page shows it: whether it is loaded, its last exit code and its interval in seconds. */
+/** The agent as the dashboard shows it: whether it is loaded, its last exit code and its interval in seconds. */
 export const agentState = (): { loaded: boolean; lastExit: number | null; every: number | null } => {
   if (!loaded()) return { loaded: false, lastExit: null, every: null };
   const out = launchctl('print', `${domain()}/${LABEL}`);

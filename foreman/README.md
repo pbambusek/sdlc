@@ -29,7 +29,8 @@ Needs Node 24, `gh` signed in, Claude Code, [Lima](https://lima-vm.io) and [nono
 bin/foreman tick --dry-run       what a tick would do, doing nothing
 bin/foreman tick                 one tick
 bin/foreman tick --only PROJ-67  one issue (not saved as the last tick)
-bin/foreman status               the last tick, the launchd agent's state, where the page and log are
+bin/foreman serve                the dashboard, on this machine only; opens it and prints its address
+bin/foreman status               the last tick, the launchd agent's state, the dashboard's address and the log
 bin/foreman status --live        observe now, act on nothing
 bin/foreman stats                tokens, cost, time and rounds per feature, from the archive (--since 7d, --json)
 bin/foreman stats PROJ-67        the same for each of the issue's runs
@@ -41,16 +42,12 @@ Builds show up in `claude agents` as `sdlc:build <KEY> #<n>`; `claude attach <id
 
 A verify run is foreman's launcher, a detached process running a headless session, so it is not in `claude agents`. Its launcher log (`~/.sdlc/runs/<KEY>/…-verify.log`) shows each step as it happens, and `foreman log <KEY> -f` follows it. The log names the verifier's session; after the run, `claude --resume <id>` in the run folder opens it.
 
-Every tick rewrites `~/.sdlc/status.html` (it reloads itself each minute) and `~/.sdlc/last-tick.json`. The page is a board, not only the last tick:
+## The dashboard
 
-- the tick's health: when it last ran, launchd's state and last exit code, and ticks, actions and errors in the last 24 h. A banner says so when no tick has rewritten the page for two intervals.
-- **Needs you**: each feature waiting on a person (parked, a session waiting for permission, an invalid approval, ready for review, merged), with why and what to do.
-- spend today, in the last 7 days and in all, and a bar per day for the last 14.
-- **In flight**, as a list or a board by state: each feature's rounds from its ledger, such as `B1 ✓ → V ✗ failed → F ↻ fix → B2 ✓ → V ✓ passed`, across parks and un-parks. A row opens to its runs with their turns, time and cost from the archive.
-- **Activity** from the journal: what ticks did, every error, verify launchers' exits and people's commands, with ticks that did nothing folded into one line.
-- **Recent runs** from the archive, and **Done**: features no longer in the JQL, as the last tick that saw them left them.
+`foreman serve` runs the dashboard at `http://127.0.0.1:<serve.port>/` (4519 by default), on the loopback only, so another machine can't reach it. It opens it in the browser and prints its address; `foreman status` prints it too while it runs. It only shows: each page renders from `~/.sdlc/last-tick.json`, which every saved tick writes, the archive and the journal, and reloads itself each minute. A dry run or `--only` tick does not save it.
 
-The page remembers its view, open rows and filter in the browser. A dry run or `--only` tick does not save it.
+- **Now**: the tick's health (when it last ran, launchd's state and last exit code, errors in the last 24 h, and a banner when no tick has run for two intervals); spend, agent time and tasks run by stage since tracking began; **Needs you**, a card per issue waiting on a person (parked, a session waiting for permission, an invalid approval, no repo, a closed PR, ready for review) with only the facts foreman holds and what to do; what is running, with how long; and the rest in flight, each with its rounds from the ledger, such as `B1 ✓ → V ✗ failed → F ↻ fix → B2 ✓`.
+- **History**: issues that have ended or left the JQL, with how they ended, their rounds, agent time and cost; the activity from the journal, with ticks that did nothing folded into one line; spend per day for the last 14 days.
 
 ## Verify runs
 
@@ -98,11 +95,11 @@ The agent is `~/Library/LaunchAgents/com.sdlc.foreman.plist`. A tick writes the 
 
 ## Local files
 
-`~/.sdlc/` holds the config, the journal, the tick's lock, the status page, and:
+`~/.sdlc/` holds the config, the journal, the tick's lock, the last tick, the dashboard's address (`serve.json`), and:
 
 - `work/`: the worktrees of running builds.
 - `runs/<KEY>/`: the spec snapshot of each approval, each build's result file (read once, when the build ends), and each verify run's launcher log.
-- `features.json`: each feature a saved tick has seen, as it last saw it, for the page's Done section.
+- `features.json`: each feature a saved tick has seen, as it last saw it, for the history page.
 - `archive/<KEY>/`: per feature, `manifest.jsonl` (one line per stage run, with its usage), the transcript of every build and verifier session with its subagents' transcripts, and a copy of every verify run's folder, which a fix build reads as its report. Claude Code deletes transcripts after `cleanupPeriodDays`; this copy keeps them. Transcripts can hold secrets: the archive stays on this machine.
 
 Deleting `~/.sdlc/` (except the config) while nothing runs loses history and the reports for the next fix builds, never a decision: the ledger is Jira and GitHub.
@@ -110,7 +107,7 @@ Deleting `~/.sdlc/` (except the config) while nothing runs loses history and the
 ## Develop
 
 ```
-yarn test                   from the repo root (Vitest): the table, the ledger format, ADF conversion, result classification, usage counting
+yarn test                   from the repo root (Vitest): the table, the ledger format, ADF conversion, result classification, usage counting, the dashboard
 ```
 
-`src/decide.mts` is the table: pure, observed facts in, one decision out. Everything else observes (`tick.mts` → `jira.mts`, `github.mts`, `sessions.mts`, `evidence.mts`) or acts.
+`src/decide.mts` is the table: pure, observed facts in, one decision out. Everything else observes (`tick.mts` → `jira.mts`, `github.mts`, `sessions.mts`, `evidence.mts`), acts, or shows (`server.mts`, `dashboard.mts`).
